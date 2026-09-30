@@ -86,7 +86,7 @@ export interface JournalEntry {
 }
 
 export interface GameState {
-  version: 2;
+  version: 3;
   shards: number;
   coins: number;
   depth: number;
@@ -101,6 +101,7 @@ export interface GameState {
   inventory: Record<OreId, number>;
   upgrades: Record<UpgradeId, number>;
   machines: Record<MachineId, number>;
+  salesCompleted: number;
   claimedGoals: string[];
   journal: JournalEntry[];
   activeEvent: MineEvent | null;
@@ -214,9 +215,9 @@ export const UPGRADES: UpgradeDefinition[] = [
 ];
 
 export const MACHINES: MachineDefinition[] = [
-  { id: "drill", name: "Taupe mécanique", description: "+2 dégâts automatiques par seconde", baseCost: 140, scale: 1.62, unlockDepth: 8 },
-  { id: "cart", name: "Wagon trieur", description: "+12 % de minerai à chaque filon", baseCost: 260, scale: 1.68, unlockDepth: 15 },
-  { id: "smelter", name: "Four à induction", description: "+18 % sur toutes les ventes", baseCost: 520, scale: 1.72, unlockDepth: 25 },
+  { id: "drill", name: "Taupe mécanique", description: "+1,6 dégât automatique par seconde", baseCost: 180, scale: 1.72, unlockDepth: 8 },
+  { id: "cart", name: "Wagon trieur", description: "+9 % de minerai à chaque filon", baseCost: 380, scale: 1.76, unlockDepth: 15 },
+  { id: "smelter", name: "Four à induction", description: "+14 % sur toutes les ventes", baseCost: 900, scale: 1.8, unlockDepth: 25 },
 ];
 
 export interface GoalDefinition {
@@ -269,8 +270,9 @@ export function zoneForDepth(depth: number): ZoneDefinition {
 
 export function rockMaxHpFor(depth: number): number {
   const zone = zoneForDepth(depth);
-  const zoneMultiplier = [1, 1.85, 3.6][zone.id] ?? 1;
-  return Math.round((10 + depth * 2.35 + Math.pow(depth, 1.2) * 0.36) * zoneMultiplier);
+  const zoneMultiplier = [1, 2.05, 4.4][zone.id] ?? 1;
+  const deepRockPressure = Math.pow(1.008, Math.max(0, depth - 15));
+  return Math.round((10 + depth * 2.35 + Math.pow(depth, 1.2) * 0.36) * zoneMultiplier * deepRockPressure);
 }
 
 export function rockNameFor(state: GameState): string {
@@ -281,7 +283,7 @@ export function rockNameFor(state: GameState): string {
 export function createInitialState(): GameState {
   const rockMaxHp = rockMaxHpFor(1);
   return {
-    version: 2,
+    version: 3,
     shards: 0,
     coins: 0,
     depth: 1,
@@ -296,6 +298,7 @@ export function createInitialState(): GameState {
     inventory: emptyInventory(),
     upgrades: emptyUpgrades(),
     machines: emptyMachines(),
+    salesCompleted: 0,
     claimedGoals: [],
     journal: [{ id: 1, text: "La première galerie attend. Trois silhouettes observent depuis les poutres.", tone: "normal" }],
     activeEvent: null,
@@ -311,14 +314,23 @@ export function createInitialState(): GameState {
 function normalizeState(candidate: Partial<GameState>): GameState {
   const base = createInitialState();
   const toolTier = clamp(Math.floor(candidate.toolTier ?? 0), 0, TOOLS.length - 1);
+  const candidateMachines = { ...base.machines, ...(candidate.machines ?? {}) };
+  const candidateUpgrades = { ...base.upgrades, ...(candidate.upgrades ?? {}) };
+  const inferredPreviousSale =
+    Number(candidate.coins ?? 0) > 0
+    || Object.values(candidateMachines).some((level) => level > 0)
+    || candidateUpgrades.precision > 0
+    || candidateUpgrades.geology > 0
+    || toolTier > 0;
   const merged: GameState = {
     ...base,
     ...candidate,
-    version: 2,
+    version: 3,
     toolTier,
     inventory: { ...base.inventory, ...(candidate.inventory ?? {}) },
-    upgrades: { ...base.upgrades, ...(candidate.upgrades ?? {}) },
-    machines: { ...base.machines, ...(candidate.machines ?? {}) },
+    upgrades: candidateUpgrades,
+    machines: candidateMachines,
+    salesCompleted: Math.max(0, Math.floor(candidate.salesCompleted ?? (inferredPreviousSale ? 1 : 0))),
     claimedGoals: Array.isArray(candidate.claimedGoals) ? candidate.claimedGoals : [],
     journal: Array.isArray(candidate.journal) && candidate.journal.length ? candidate.journal.slice(0, 12) : base.journal,
     activeEvent: null,
@@ -369,8 +381,8 @@ function applyOfflineProgress(state: GameState): GameState {
   if (elapsed < 60 || stats.autoDamage <= 0) return state;
 
   const work = stats.autoDamage * elapsed;
-  const shards = Math.floor(work / 14);
-  const ore = Math.floor(work / 26);
+  const shards = Math.floor(work / 18);
+  const ore = Math.floor(work / 34);
   return {
     ...state,
     shards: state.shards + shards,
@@ -397,9 +409,9 @@ export function getDerivedStats(state: GameState): DerivedStats {
   const maxDurability = tool.durability + state.upgrades.sturdy * 25;
   const critChance = Math.min(0.52, 0.06 + state.upgrades.precision * 0.03 + (state.depth >= 60 ? 0.04 : 0));
   const critMultiplier = 2 + Math.floor(state.upgrades.precision / 5) * 0.25;
-  const autoDamage = state.machines.drill * 2 * (1 + state.toolTier * 0.22);
-  const yieldMultiplier = 1 + state.machines.cart * 0.12 + state.upgrades.geology * 0.08;
-  const saleMultiplier = 1 + state.machines.smelter * 0.18 + (state.depth >= 25 ? 0.05 : 0);
+  const autoDamage = state.machines.drill * 1.6 * (1 + state.toolTier * 0.18);
+  const yieldMultiplier = 1 + state.machines.cart * 0.09 + state.upgrades.geology * 0.07;
+  const saleMultiplier = 1 + state.machines.smelter * 0.14 + (state.depth >= 25 ? 0.05 : 0);
   const missing = Math.max(0, maxDurability - state.durability);
   const discount = Math.max(0.28, 1 - state.upgrades.maintenance * 0.09);
   const repairCost = Math.max(2, Math.ceil((missing * 0.1 + state.toolTier * 3) * discount));
@@ -424,6 +436,10 @@ export function machineCount(state: GameState): number {
 
 export function inventoryCount(state: GameState): number {
   return ORE_ORDER.reduce((sum, id) => sum + state.inventory[id], 0);
+}
+
+export function expectedOreYield(depth: number, yieldMultiplier: number): number {
+  return (2 + depth / 22) * yieldMultiplier;
 }
 
 function addJournal(state: GameState, text: string, tone: JournalEntry["tone"] = "normal"): GameState {
@@ -458,14 +474,15 @@ function breakRock(state: GameState, automatic = false): GameState {
   const oldZone = zoneForDepth(state.depth);
   const stats = getDerivedStats(state);
   const inventory = { ...state.inventory };
-  const rolls = Math.max(2, Math.floor((2 + state.depth / 18) * stats.yieldMultiplier));
+  const expectedRolls = expectedOreYield(state.depth, stats.yieldMultiplier);
+  const baseRolls = Math.floor(expectedRolls);
+  const rolls = Math.max(2, baseRolls + (Math.random() < expectedRolls - baseRolls ? 1 : 0));
   let mined = 0;
 
   for (let index = 0; index < rolls; index += 1) {
     const ore = rollOre(oldZone, state.upgrades.geology);
-    const amount = 1 + (Math.random() < stats.yieldMultiplier - Math.floor(stats.yieldMultiplier) ? 1 : 0);
-    inventory[ore] += amount;
-    mined += amount;
+    inventory[ore] += 1;
+    mined += 1;
   }
 
   const nextDepth = state.depth + 1;
@@ -554,7 +571,7 @@ function tick(state: GameState, seconds: number): GameState {
     next.rockHp -= overflow;
     guard += 1;
   }
-  const passiveShards = Math.floor((stats.autoDamage * seconds) / 9);
+  const passiveShards = Math.floor((stats.autoDamage * seconds) / 15);
   if (passiveShards > 0) next.shards += passiveShards;
   return next;
 }
@@ -606,6 +623,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         ...state,
         coins: state.coins + value,
         inventory: emptyInventory(),
+        salesCompleted: state.salesCompleted + 1,
         message: `Vente terminée · ${formatNumber(value)} pièces ajoutées à l'atelier.`,
       };
     }

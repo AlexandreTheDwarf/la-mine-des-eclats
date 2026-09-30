@@ -2,6 +2,13 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
+## Version 0.3
+
+- économie rééquilibrée et rendement des wagons corrigé ;
+- notifications animées pour les machines débloquées et les objectifs atteints ;
+- mini-tutoriel contextuel pour la vente des minerais ;
+- texte des événements non sélectionnable.
+
 ## Lancer le jeu
 
 ```bash

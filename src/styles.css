@@ -315,6 +315,96 @@ svg {
   transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
 }
 
+.sale-tutorial {
+  display: grid;
+  gap: 9px;
+  margin-top: 13px;
+  padding: 11px;
+  border: 1px solid rgba(255, 189, 89, 0.38);
+  border-radius: 6px;
+  background: rgba(255, 189, 89, 0.075);
+  box-shadow: inset 3px 0 rgba(255, 189, 89, 0.58);
+  animation: tutorial-arrive 260ms ease both;
+}
+
+.sale-tutorial__heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sale-tutorial__heading > svg {
+  width: 21px;
+  color: var(--amber);
+}
+
+.sale-tutorial__heading > span {
+  display: grid;
+}
+
+.sale-tutorial__heading small {
+  color: var(--amber);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.56rem;
+  font-weight: 800;
+}
+
+.sale-tutorial__heading strong {
+  margin-top: 2px;
+  color: #ffe5b8;
+  font-size: 0.75rem;
+}
+
+.sale-tutorial__flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 12px minmax(0, 1fr) 12px minmax(0, 1fr);
+  align-items: center;
+  gap: 3px;
+}
+
+.sale-tutorial__flow span {
+  display: grid;
+  min-width: 0;
+  min-height: 40px;
+  padding: 5px 2px;
+  border: 1px solid rgba(255, 189, 89, 0.18);
+  border-radius: 4px;
+  place-items: center;
+  color: #d9c7a8;
+  font-size: 0.55rem;
+  text-align: center;
+}
+
+.sale-tutorial__flow span svg {
+  width: 14px;
+  margin-bottom: 2px;
+  color: var(--amber);
+}
+
+.sale-tutorial__flow > svg {
+  width: 12px;
+  color: rgba(255, 189, 89, 0.55);
+}
+
+.sale-tutorial p,
+.sale-tutorial > small {
+  margin: 0;
+  color: #c4b89f;
+  font-size: 0.64rem;
+  line-height: 1.4;
+}
+
+.sale-tutorial > small {
+  color: var(--muted-2);
+  font-size: 0.57rem;
+}
+
+.sell-button.is-tutorial:not(:disabled) {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 1px rgba(255, 189, 89, 0.2), 0 0 20px rgba(255, 189, 89, 0.12);
+  animation: sale-pulse 1.8s ease-in-out infinite;
+}
+
 .sell-button:hover:not(:disabled) {
   border-color: var(--amber);
   background: rgba(255, 189, 89, 0.18);
@@ -846,6 +936,7 @@ svg {
 }
 
 .panel-tabs button {
+  position: relative;
   display: grid;
   min-width: 0;
   padding: 7px 3px 5px;
@@ -877,6 +968,25 @@ svg {
   margin-top: 2px;
   font-size: 0.63rem;
   text-overflow: ellipsis;
+}
+
+.panel-tabs .tab-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  display: grid;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border: 1px solid #ffe0a2;
+  border-radius: 9px;
+  place-items: center;
+  background: #b85f22;
+  color: #fff8e8;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.58rem;
+  line-height: 1;
+  box-shadow: 0 0 12px rgba(255, 189, 89, 0.26);
 }
 
 .command-panel__body {
@@ -1319,6 +1429,139 @@ svg {
   animation: modal-backdrop 180ms ease both;
 }
 
+.notice-stack {
+  position: fixed;
+  z-index: 90;
+  top: 88px;
+  left: 50%;
+  display: grid;
+  width: min(390px, calc(100vw - 24px));
+  gap: 8px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.game-notice {
+  position: relative;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 82px;
+  padding: 10px 38px 10px 10px;
+  border: 1px solid rgba(98, 238, 227, 0.52);
+  border-radius: 7px;
+  background: rgba(5, 20, 25, 0.97);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.48), inset 3px 0 var(--cyan);
+  pointer-events: auto;
+  animation: notice-arrive 320ms cubic-bezier(0.2, 0.85, 0.32, 1.12) both;
+}
+
+.game-notice--goal {
+  border-color: rgba(255, 189, 89, 0.58);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.48), inset 3px 0 var(--amber);
+}
+
+.game-notice__icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgba(98, 238, 227, 0.35);
+  border-radius: 6px;
+  place-items: center;
+  background: rgba(98, 238, 227, 0.09);
+  color: var(--cyan-soft);
+}
+
+.game-notice--goal .game-notice__icon {
+  border-color: rgba(255, 189, 89, 0.34);
+  background: rgba(255, 189, 89, 0.09);
+  color: var(--amber);
+}
+
+.game-notice__icon svg {
+  width: 23px;
+  animation: notice-icon 600ms ease 120ms both;
+}
+
+.game-notice__copy {
+  display: grid;
+  min-width: 0;
+}
+
+.game-notice__copy small {
+  color: var(--cyan);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.56rem;
+  font-weight: 800;
+}
+
+.game-notice--goal .game-notice__copy small {
+  color: var(--amber);
+}
+
+.game-notice__copy strong {
+  margin-top: 2px;
+  color: #f0fbfa;
+  font-size: 0.87rem;
+}
+
+.game-notice__copy p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.64rem;
+  line-height: 1.35;
+}
+
+.game-notice__action {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 7px;
+  border: 1px solid rgba(98, 238, 227, 0.3);
+  border-radius: 4px;
+  background: rgba(98, 238, 227, 0.08);
+  color: var(--cyan-soft);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.58rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.game-notice--goal .game-notice__action {
+  border-color: rgba(255, 189, 89, 0.34);
+  background: rgba(255, 189, 89, 0.08);
+  color: #ffe1a4;
+}
+
+.game-notice__action svg {
+  width: 13px;
+}
+
+.game-notice__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  place-items: center;
+  background: transparent;
+  color: var(--muted-2);
+  cursor: pointer;
+}
+
+.game-notice__close:hover {
+  color: #fff;
+}
+
+.game-notice__close svg {
+  width: 15px;
+}
+
 .event-modal,
 .offline-modal,
 .settings-modal {
@@ -1334,6 +1577,11 @@ svg {
 .offline-modal {
   padding: 25px;
   text-align: center;
+}
+
+.event-modal {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .event-modal__sigil,
@@ -1560,6 +1808,27 @@ svg {
 @keyframes modal-arrive {
   from { opacity: 0; transform: translateY(12px) scale(0.985); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes tutorial-arrive {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sale-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 189, 89, 0.16), 0 0 12px rgba(255, 189, 89, 0.08); }
+  50% { box-shadow: 0 0 0 2px rgba(255, 189, 89, 0.3), 0 0 24px rgba(255, 189, 89, 0.18); }
+}
+
+@keyframes notice-arrive {
+  from { opacity: 0; transform: translateY(-14px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes notice-icon {
+  0% { opacity: 0; transform: scale(0.45) rotate(-12deg); }
+  65% { opacity: 1; transform: scale(1.14) rotate(3deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
 }
 
 @media (max-width: 1280px) {
@@ -1836,6 +2105,27 @@ svg {
   .event-modal,
   .offline-modal {
     padding: 20px 15px;
+  }
+
+  .notice-stack {
+    top: 72px;
+  }
+
+  .game-notice {
+    grid-template-columns: 42px minmax(0, 1fr);
+    min-height: 76px;
+    padding-right: 34px;
+  }
+
+  .game-notice__icon {
+    width: 42px;
+    height: 42px;
+  }
+
+  .game-notice__action {
+    grid-column: 2;
+    justify-self: start;
+    min-height: 29px;
   }
 }
 

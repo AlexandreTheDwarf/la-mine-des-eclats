@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   createInitialState,
+  expectedOreYield,
   gameReducer,
   getDerivedStats,
   inventoryCount,
@@ -25,6 +26,13 @@ const valueBeforeSale = getDerivedStats(state).inventoryValue;
 state = gameReducer(state, { type: "SELL_ALL" });
 assert.equal(inventoryCount(state), 0, "selling should empty the inventory");
 assert.equal(state.coins, valueBeforeSale, "selling should grant the computed value");
+assert.equal(state.salesCompleted, 1, "selling should complete the contextual sales tutorial");
+
+assert.equal(
+  expectedOreYield(22, 2),
+  expectedOreYield(22, 1) * 2,
+  "ore yield multipliers should be applied exactly once",
+);
 
 state = { ...state, shards: 1_000 };
 const damageBeforeUpgrade = getDerivedStats(state).clickDamage;

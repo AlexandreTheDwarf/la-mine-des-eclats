@@ -2,6 +2,7 @@ import {
   Bot,
   Cat,
   Check,
+  ChevronRight,
   CircleDollarSign,
   Copy,
   Crosshair,
@@ -78,6 +79,14 @@ interface HitEffect {
   shards: number;
 }
 
+interface GameNotice {
+  id: string;
+  kind: "unlock" | "goal";
+  name: string;
+  detail: string;
+  machineId?: MachineId;
+}
+
 const upgradeIcons: Record<UpgradeId, LucideIcon> = {
   power: Pickaxe,
   sturdy: Shield,
@@ -98,6 +107,40 @@ const tabDefinitions: Array<{ id: PanelTab; label: string; icon: LucideIcon }> =
   { id: "forge", label: "Forge", icon: Hammer },
   { id: "goals", label: "Objectifs", icon: Trophy },
 ];
+
+function NoticeStack({
+  notices,
+  onOpen,
+  onDismiss,
+}: {
+  notices: GameNotice[];
+  onOpen: (notice: GameNotice) => void;
+  onDismiss: (id: string) => void;
+}) {
+  return (
+    <div className="notice-stack" aria-live="polite" aria-label="Nouveautés de la mine">
+      {notices.slice(0, 2).map((notice) => {
+        const Icon = notice.machineId ? machineIcons[notice.machineId] : Trophy;
+        return (
+          <article className={`game-notice game-notice--${notice.kind}`} key={notice.id}>
+            <span className="game-notice__icon"><Icon aria-hidden="true" /></span>
+            <div className="game-notice__copy">
+              <small>{notice.kind === "unlock" ? "NOUVEAU PLAN DÉBLOQUÉ" : "OBJECTIF ATTEINT"}</small>
+              <strong>{notice.name}</strong>
+              <p>{notice.detail}</p>
+            </div>
+            <button className="game-notice__action" type="button" onClick={() => onOpen(notice)}>
+              {notice.kind === "unlock" ? "ATELIER" : "OBJECTIFS"}<ChevronRight aria-hidden="true" />
+            </button>
+            <button className="game-notice__close" type="button" aria-label={`Fermer la notification ${notice.name}`} onClick={() => onDismiss(notice.id)}>
+              <X aria-hidden="true" />
+            </button>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
 
 function ProgressBar({ value, label, tone = "cyan" }: { value: number; label: string; tone?: "cyan" | "amber" | "red" }) {
   const safeValue = Math.max(0, Math.min(100, value));
@@ -178,6 +221,7 @@ function InventoryPanel({ state, onSell }: { state: GameState; onSell: () => voi
   const stats = getDerivedStats(state);
   const zone = zoneForDepth(state.depth);
   const unlockedOreIndex = zone.id === 0 ? 4 : zone.id === 1 ? 5 : 6;
+  const showSaleTutorial = state.salesCompleted === 0 && inventoryCount(state) > 0;
 
   const crew = [
     { name: "Mica", role: "Repérage", unlocked: true },
@@ -210,7 +254,25 @@ function InventoryPanel({ state, onSell }: { state: GameState; onSell: () => voi
         })}
       </div>
 
-      <button className="sell-button" type="button" onClick={onSell} disabled={stats.inventoryValue <= 0}>
+      {showSaleTutorial && (
+        <div className="sale-tutorial" role="status">
+          <div className="sale-tutorial__heading">
+            <CircleDollarSign aria-hidden="true" />
+            <span><small>PREMIÈRE VENTE</small><strong>Le minerai finance l’atelier</strong></span>
+          </div>
+          <div className="sale-tutorial__flow" aria-label="Minerais, vente, pièces, machines">
+            <span><Package aria-hidden="true" /> Minerais</span>
+            <ChevronRight aria-hidden="true" />
+            <span><ShoppingCart aria-hidden="true" /> Vente</span>
+            <ChevronRight aria-hidden="true" />
+            <span><Bot aria-hidden="true" /> Machines</span>
+          </div>
+          <p>Vends le chargement pour obtenir les pièces nécessaires aux machines et aux nouvelles pioches.</p>
+          <small>La vente vide tout le chargement : la forge demandera parfois de conserver certains minerais.</small>
+        </div>
+      )}
+
+      <button className={`sell-button${showSaleTutorial ? " is-tutorial" : ""}`} type="button" onClick={onSell} disabled={stats.inventoryValue <= 0}>
         <ShoppingCart aria-hidden="true" />
         <span>
           <strong>VENDRE LE CHARGEMENT</strong>
@@ -526,6 +588,7 @@ function CommandPanel({
   activeTab: PanelTab;
   onTab: (tab: PanelTab) => void;
 }) {
+  const readyGoals = GOALS.filter((goal) => goal.progress(state) >= goal.target && !state.claimedGoals.includes(goal.id)).length;
   return (
     <aside className="command-panel">
       <nav className="panel-tabs" aria-label="Atelier">
@@ -541,6 +604,7 @@ function CommandPanel({
             >
               <Icon aria-hidden="true" />
               <span>{tab.label}</span>
+              {tab.id === "goals" && readyGoals > 0 && <b className="tab-badge" aria-label={`${readyGoals} objectif${readyGoals > 1 ? "s" : ""} à récupérer`}>{readyGoals}</b>}
             </button>
           );
         })}
@@ -654,7 +718,7 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>LOCAL · VERSION 0.2</small><h2 id="settings-title">Sauvegarde</h2></div>
+          <div><small>LOCAL · VERSION 0.3</small><h2 id="settings-title">Sauvegarde</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
@@ -724,11 +788,29 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<PanelTab>("upgrades");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [effects, setEffects] = useState<HitEffect[]>([]);
+  const [notices, setNotices] = useState<GameNotice[]>([]);
   const pointerRef = useRef({ x: 50, y: 46 });
   const lastEffectId = useRef(state.impact.id);
+  const previousDepth = useRef(state.depth);
+  const reachedGoals = useRef(new Set(
+    GOALS
+      .filter((goal) => goal.progress(state) >= goal.target || state.claimedGoals.includes(goal.id))
+      .map((goal) => goal.id),
+  ));
   const zone = zoneForDepth(state.depth);
+  const goalProgressKey = GOALS
+    .map((goal) => `${goal.id}:${goal.progress(state) >= goal.target ? 1 : 0}:${state.claimedGoals.includes(goal.id) ? 1 : 0}`)
+    .join("|");
 
   useGameAudio(state);
+
+  const queueNotices = useCallback((incoming: GameNotice[]) => {
+    if (!incoming.length) return;
+    setNotices((current) => {
+      const visible = new Set(current.map((notice) => notice.id));
+      return [...current, ...incoming.filter((notice) => !visible.has(notice.id))].slice(-4);
+    });
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => dispatch({ type: "TICK", seconds: 1 }), 1_000);
@@ -739,6 +821,54 @@ export default function App() {
     const timer = window.setTimeout(() => saveGame(state), 350);
     return () => window.clearTimeout(timer);
   }, [state]);
+
+  useEffect(() => {
+    const oldDepth = previousDepth.current;
+    if (state.depth < oldDepth) {
+      previousDepth.current = state.depth;
+      return;
+    }
+
+    const unlocked = MACHINES
+      .filter((machine) => oldDepth < machine.unlockDepth && state.depth >= machine.unlockDepth)
+      .map<GameNotice>((machine) => ({
+        id: `unlock-${machine.id}-${state.depth}`,
+        kind: "unlock",
+        name: machine.name,
+        detail: `${machine.description}. Disponible dans l’onglet Machines.`,
+        machineId: machine.id,
+      }));
+    previousDepth.current = state.depth;
+    queueNotices(unlocked);
+  }, [queueNotices, state.depth]);
+
+  useEffect(() => {
+    const newlyReached: GameNotice[] = [];
+    GOALS.forEach((goal) => {
+      const complete = goal.progress(state) >= goal.target;
+      const claimed = state.claimedGoals.includes(goal.id);
+      if (!complete) {
+        reachedGoals.current.delete(goal.id);
+        return;
+      }
+      if (!claimed && !reachedGoals.current.has(goal.id)) {
+        newlyReached.push({
+          id: `goal-${goal.id}-${state.rocksBroken}-${state.depth}`,
+          kind: "goal",
+          name: goal.name,
+          detail: `${goal.description}. La récompense est prête.`,
+        });
+      }
+      reachedGoals.current.add(goal.id);
+    });
+    queueNotices(newlyReached);
+  }, [goalProgressKey, queueNotices, state]);
+
+  useEffect(() => {
+    if (!notices.length) return;
+    const timer = window.setTimeout(() => setNotices((current) => current.slice(1)), 5_500);
+    return () => window.clearTimeout(timer);
+  }, [notices]);
 
   useEffect(() => {
     if (state.impact.id === lastEffectId.current) return;
@@ -765,6 +895,12 @@ export default function App() {
     dispatch({ type: "STRIKE" });
   };
 
+  const openNotice = (notice: GameNotice) => {
+    setActiveTab(notice.kind === "unlock" ? "machines" : "goals");
+    setNotices((current) => current.filter((item) => item.id !== notice.id));
+    window.setTimeout(() => document.querySelector(".command-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  };
+
   const style = useMemo(() => ({ "--zone-accent": zone.accent } as CSSProperties), [zone.accent]);
 
   return (
@@ -780,6 +916,11 @@ export default function App() {
         />
         <CommandPanel state={state} dispatch={dispatch} activeTab={activeTab} onTab={setActiveTab} />
       </main>
+      <NoticeStack
+        notices={notices}
+        onOpen={openNotice}
+        onDismiss={(id) => setNotices((current) => current.filter((notice) => notice.id !== id))}
+      />
       <EventModal state={state} dispatch={dispatch} />
       <OfflineModal state={state} dispatch={dispatch} />
       {settingsOpen && <SettingsModal state={state} dispatch={dispatch} onClose={() => setSettingsOpen(false)} />}
