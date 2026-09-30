@@ -2,14 +2,15 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
-## Version 0.3.1
+## Version 0.4.0
 
-- sélecteur de galeries pour retourner chercher les anciens minerais sans perdre la profondeur atteinte ;
-- zone de minage protégée contre la sélection de texte et d'image sur mobile ;
-- économie rééquilibrée et rendement des wagons corrigé ;
-- notifications animées pour les machines débloquées et les objectifs atteints ;
-- mini-tutoriel contextuel pour la vente des minerais ;
-- texte des événements non sélectionnable.
+- campagne étendue à six secteurs, dix minerais et onze pioches ;
+- progression par strates : les profondeurs avancées demandent plusieurs filons par mètre ;
+- quatre grandes balises à 120, 240, 400 et 600 mètres, puis des cycles sans fin ;
+- remontées d'expédition et améliorations permanentes achetées avec les échos ;
+- deux nouvelles machines avancées, plafonds de machines et économie longue durée ;
+- nouveaux objectifs, événements, membres d'équipe et trois décors originaux ;
+- migration automatique des anciennes sauvegardes.
 
 ## Lancer le jeu
 

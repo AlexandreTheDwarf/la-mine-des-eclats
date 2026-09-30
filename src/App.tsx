@@ -4,9 +4,11 @@ import {
   Check,
   ChevronRight,
   CircleDollarSign,
+  Compass,
   Copy,
   Crosshair,
   Database,
+  Factory,
   Flame,
   Gauge,
   Gem,
@@ -16,6 +18,8 @@ import {
   Map,
   Package,
   Pickaxe,
+  Radio,
+  RefreshCw,
   RotateCcw,
   Settings,
   Shield,
@@ -44,6 +48,7 @@ import {
 } from "react";
 import {
   GOALS,
+  LEGACIES,
   MACHINES,
   ORES,
   ORE_ORDER,
@@ -51,6 +56,7 @@ import {
   UPGRADES,
   ZONES,
   activeZoneForState,
+  canStartExpedition,
   canForgeNext,
   decodeSave,
   encodeSave,
@@ -60,18 +66,23 @@ import {
   getDerivedStats,
   inventoryCount,
   loadGame,
+  legacyCost,
   machineCost,
+  expeditionReward,
+  expeditionTarget,
   rockNameFor,
   saveGame,
   upgradeCost,
+  veinsPerMeterFor,
   zoneForDepth,
   type GameState,
+  type LegacyId,
   type MachineId,
   type OreId,
   type UpgradeId,
 } from "./game";
 
-type PanelTab = "upgrades" | "machines" | "forge" | "goals";
+type PanelTab = "upgrades" | "machines" | "forge" | "goals" | "expedition";
 
 interface HitEffect {
   id: number;
@@ -102,6 +113,15 @@ const machineIcons: Record<MachineId, LucideIcon> = {
   drill: Bot,
   cart: Truck,
   smelter: Flame,
+  resonator: Radio,
+  excavator: Factory,
+};
+
+const legacyIcons: Record<LegacyId, LucideIcon> = {
+  force: Pickaxe,
+  industry: Bot,
+  fortune: Gem,
+  endurance: Shield,
 };
 
 const tabDefinitions: Array<{ id: PanelTab; label: string; icon: LucideIcon }> = [
@@ -109,9 +129,10 @@ const tabDefinitions: Array<{ id: PanelTab; label: string; icon: LucideIcon }> =
   { id: "machines", label: "Machines", icon: Bot },
   { id: "forge", label: "Forge", icon: Hammer },
   { id: "goals", label: "Objectifs", icon: Trophy },
+  { id: "expedition", label: "Cycles", icon: Compass },
 ];
 
-const zoneShortNames = ["Azur", "Faille", "Noyau"];
+const zoneShortNames = ["Azur", "Faille", "Noyau", "Quartz", "Verre", "Aube"];
 
 function NoticeStack({
   notices,
@@ -211,6 +232,13 @@ function TopBar({ state, onSound, onSettings }: { state: GameState; onSound: () 
           <span>PROFONDEUR</span>
           <strong>{formatNumber(state.depth)} m</strong>
         </div>
+        {(state.echoes > 0 || state.maxDepth >= 120) && (
+          <div className="resource-pill resource-pill--echoes">
+            <RefreshCw aria-hidden="true" />
+            <span>ÉCHOS</span>
+            <strong>{formatNumber(state.echoes)}</strong>
+          </div>
+        )}
         <IconButton label={state.soundOn ? "Couper le son" : "Activer le son"} onClick={onSound} active={state.soundOn}>
           {state.soundOn ? <Volume2 aria-hidden="true" /> : <VolumeX aria-hidden="true" />}
         </IconButton>
@@ -224,14 +252,17 @@ function TopBar({ state, onSound, onSettings }: { state: GameState; onSound: () 
 
 function InventoryPanel({ state, onSell }: { state: GameState; onSell: () => void }) {
   const stats = getDerivedStats(state);
-  const zone = zoneForDepth(state.depth);
-  const unlockedOreIndex = zone.id === 0 ? 4 : zone.id === 1 ? 5 : 6;
+  const zone = zoneForDepth(state.maxDepth);
+  const unlockedOreIndex = Math.min(ORE_ORDER.length - 1, 4 + zone.id);
   const showSaleTutorial = state.salesCompleted === 0 && inventoryCount(state) > 0;
 
   const crew = [
     { name: "Mica", role: "Repérage", unlocked: true },
-    { name: "Braise", role: "Forge", unlocked: state.depth >= 25 },
-    { name: "Nova", role: "Noyau", unlocked: state.depth >= 60 },
+    { name: "Braise", role: "Forge", unlocked: state.maxDepth >= 25 },
+    { name: "Nova", role: "Noyau", unlocked: state.maxDepth >= 60 },
+    { name: "Opale", role: "Mémoire", unlocked: state.maxDepth >= 120 },
+    { name: "Silex", role: "Verrier", unlocked: state.maxDepth >= 220 },
+    { name: "Aurore", role: "Balise", unlocked: state.maxDepth >= 360 },
   ];
 
   return (
@@ -330,6 +361,14 @@ function MineStage({
   const zone = activeZoneForState(state);
   const deepestZone = zoneForDepth(state.depth);
   const isRevisiting = zone.id !== deepestZone.id;
+  const cycleTarget = expeditionTarget(state.expeditions);
+  const veinsNeeded = veinsPerMeterFor(state.depth);
+  const atCycleCap = !isRevisiting && state.depth >= cycleTarget;
+  const strataLabel = isRevisiting
+    ? "PROSPECTION"
+    : atCycleCap
+      ? "BALISE SATURÉE"
+      : `STRATE ${Math.min(state.strataProgress + 1, veinsNeeded)}/${veinsNeeded}`;
   const tool = TOOLS[state.toolTier];
   const rockHealth = (state.rockHp / state.rockMaxHp) * 100;
   const durability = (state.durability / stats.maxDurability) * 100;
@@ -355,7 +394,7 @@ function MineStage({
           <Map aria-hidden="true" />
           <span>
             <strong>{isRevisiting ? "PROSPECTION" : "DESCENTE"}</strong>
-            <small>{isRevisiting ? `${state.depth} m conservés` : "profondeur active"}</small>
+            <small>{isRevisiting ? `${state.depth} m conservés` : `cycle ${state.expeditions + 1} · ${cycleTarget} m`}</small>
           </span>
         </div>
         <div className="zone-switcher__options" role="group" aria-label="Galeries découvertes">
@@ -384,7 +423,7 @@ function MineStage({
 
       <div className="rock-status">
         <div>
-          <span>FILON {String(state.rocksBroken + 1).padStart(3, "0")}</span>
+          <span>FILON {String(state.rocksBroken + 1).padStart(3, "0")} · {strataLabel}</span>
           <strong>{rockNameFor(state)}</strong>
         </div>
         <b>{formatNumber(Math.max(0, state.rockHp))} / {formatNumber(state.rockMaxHp)}</b>
@@ -502,21 +541,22 @@ function MachineList({ state, dispatch }: { state: GameState; dispatch: React.Di
       {MACHINES.map((machine) => {
         const level = state.machines[machine.id];
         const cost = machineCost(machine, level);
-        const unlocked = state.depth >= machine.unlockDepth;
+        const unlocked = state.maxDepth >= machine.unlockDepth;
+        const maxed = level >= machine.max;
         const Icon = machineIcons[machine.id];
         return (
           <div className={`purchase-row${unlocked ? "" : " is-locked"}`} key={machine.id}>
             <span className="purchase-row__icon"><Icon aria-hidden="true" /></span>
             <span className="purchase-row__copy">
-              <strong>{machine.name}<b>{unlocked ? `x${level}` : <Lock size={12} />}</b></strong>
-              <small>{unlocked ? machine.description : `Disponible à ${machine.unlockDepth} m`}</small>
+              <strong>{machine.name}<b>{unlocked ? `x${level} / ${machine.max}` : <Lock size={12} />}</b></strong>
+              <small>{maxed ? "Installation maximale" : unlocked ? machine.description : `Disponible à ${machine.unlockDepth} m`}</small>
             </span>
             <button
               type="button"
-              disabled={!unlocked || state.coins < cost}
+              disabled={!unlocked || maxed || state.coins < cost}
               onClick={() => dispatch({ type: "BUY_MACHINE", id: machine.id })}
             >
-              {formatNumber(cost)}<small>pièces</small>
+              {maxed ? <Check aria-hidden="true" /> : formatNumber(cost)}{!maxed && <small>pièces</small>}
             </button>
           </div>
         );
@@ -597,6 +637,7 @@ function GoalsPanel({ state, dispatch }: { state: GameState; dispatch: React.Dis
         const reward = [
           goal.reward.shards ? `${formatNumber(goal.reward.shards)} éclats` : "",
           goal.reward.coins ? `${formatNumber(goal.reward.coins)} pièces` : "",
+          goal.reward.echoes ? `${formatNumber(goal.reward.echoes)} échos` : "",
           goal.reward.drill ? `${goal.reward.drill} taupe` : "",
         ].filter(Boolean).join(" · ");
         return (
@@ -618,6 +659,80 @@ function GoalsPanel({ state, dispatch }: { state: GameState; dispatch: React.Dis
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function ExpeditionPanel({ state, dispatch }: { state: GameState; dispatch: React.Dispatch<Parameters<typeof gameReducer>[1]> }) {
+  const [launchArmed, setLaunchArmed] = useState(false);
+  const target = expeditionTarget(state.expeditions);
+  const reward = expeditionReward({ depth: target, expeditions: state.expeditions });
+  const ready = canStartExpedition(state);
+  const nextZone = ZONES.find((zone) => zone.minDepth > state.maxDepth);
+
+  const launch = () => {
+    if (!launchArmed) {
+      setLaunchArmed(true);
+      return;
+    }
+    dispatch({ type: "START_EXPEDITION" });
+    setLaunchArmed(false);
+  };
+
+  return (
+    <div className="expedition-panel">
+      <section className={`cycle-console${ready ? " is-ready" : ""}`}>
+        <div className="cycle-console__heading">
+          <span><Compass aria-hidden="true" /></span>
+          <div>
+            <small>CYCLE D'EXPÉDITION {String(state.expeditions + 1).padStart(2, "0")}</small>
+            <h3>Balise à {formatNumber(target)} m</h3>
+          </div>
+          <strong>{formatNumber(state.depth)}<small>m</small></strong>
+        </div>
+        <ProgressBar value={(Math.min(state.depth, target) / target) * 100} label="Progression du cycle" tone={ready ? "amber" : "cyan"} />
+        <div className="cycle-readouts">
+          <span>Record<strong>{formatNumber(state.maxDepth)} m</strong></span>
+          <span>Remontée<strong>+{formatNumber(reward)} échos</strong></span>
+          <span>Prochain secteur<strong>{nextZone ? `${nextZone.minDepth} m` : "Tous découverts"}</strong></span>
+        </div>
+        <p>
+          {ready
+            ? "La balise répond. La prochaine remontée peut inscrire cette descente dans la mémoire de la mine."
+            : `Encore ${formatNumber(Math.max(0, target - state.depth))} m avant que la balise accepte une remontée.`}
+        </p>
+        {launchArmed && <small className="cycle-warning">La profondeur, les ressources, les machines, les améliorations et la pioche repartiront de zéro. Les échos, records et objectifs restent acquis.</small>}
+        <button className={`expedition-action${launchArmed ? " is-armed" : ""}`} type="button" disabled={!ready} onClick={launch}>
+          <RefreshCw aria-hidden="true" />
+          {launchArmed ? `CONFIRMER · +${formatNumber(reward)} ÉCHOS` : "PRÉPARER LA REMONTÉE"}
+        </button>
+      </section>
+
+      <div className="legacy-heading">
+        <span>MÉMOIRE PERMANENTE</span>
+        <strong>{formatNumber(state.echoes)} échos disponibles</strong>
+      </div>
+      <div className="purchase-list legacy-list">
+        {LEGACIES.map((legacy) => {
+          const level = state.legacy[legacy.id];
+          const cost = legacyCost(legacy, level);
+          const maxed = level >= legacy.max;
+          const Icon = legacyIcons[legacy.id];
+          return (
+            <div className="purchase-row" key={legacy.id}>
+              <span className="purchase-row__icon"><Icon aria-hidden="true" /></span>
+              <span className="purchase-row__copy">
+                <strong>{legacy.name}<b>Niv. {level}</b></strong>
+                <small>{maxed ? "Mémoire complète" : legacy.description}</small>
+              </span>
+              <button type="button" disabled={maxed || state.echoes < cost} onClick={() => dispatch({ type: "BUY_LEGACY", id: legacy.id })}>
+                {maxed ? <Check aria-hidden="true" /> : formatNumber(cost)}
+                {!maxed && <small>échos</small>}
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -666,6 +781,7 @@ function CommandPanel({
         {activeTab === "machines" && <MachineList state={state} dispatch={dispatch} />}
         {activeTab === "forge" && <ForgePanel state={state} dispatch={dispatch} />}
         {activeTab === "goals" && <GoalsPanel state={state} dispatch={dispatch} />}
+        {activeTab === "expedition" && <ExpeditionPanel state={state} dispatch={dispatch} />}
       </div>
     </aside>
   );
@@ -763,7 +879,7 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>LOCAL · VERSION 0.3.1</small><h2 id="settings-title">Sauvegarde</h2></div>
+          <div><small>LOCAL · VERSION 0.4.0</small><h2 id="settings-title">Sauvegarde</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
@@ -811,6 +927,7 @@ function useGameAudio(state: GameState) {
   useEffect(() => {
     if (state.impact.id === previousImpact.current) return;
     previousImpact.current = state.impact.id;
+    if (state.impact.damage <= 0) return;
     playTone(state.impact.crit ? 460 : 170 + Math.random() * 50, 0.11, "square", state.impact.crit ? 0.045 : 0.026);
     playTone(74, 0.18, "triangle", 0.04, 0.015);
   }, [playTone, state.impact]);
@@ -836,7 +953,7 @@ export default function App() {
   const [notices, setNotices] = useState<GameNotice[]>([]);
   const pointerRef = useRef({ x: 50, y: 46 });
   const lastEffectId = useRef(state.impact.id);
-  const previousDepth = useRef(state.depth);
+  const previousMaxDepth = useRef(state.maxDepth);
   const reachedGoals = useRef(new Set(
     GOALS
       .filter((goal) => goal.progress(state) >= goal.target || state.claimedGoals.includes(goal.id))
@@ -868,24 +985,24 @@ export default function App() {
   }, [state]);
 
   useEffect(() => {
-    const oldDepth = previousDepth.current;
-    if (state.depth < oldDepth) {
-      previousDepth.current = state.depth;
+    const oldMaxDepth = previousMaxDepth.current;
+    if (state.maxDepth < oldMaxDepth) {
+      previousMaxDepth.current = state.maxDepth;
       return;
     }
 
     const unlocked = MACHINES
-      .filter((machine) => oldDepth < machine.unlockDepth && state.depth >= machine.unlockDepth)
+      .filter((machine) => oldMaxDepth < machine.unlockDepth && state.maxDepth >= machine.unlockDepth)
       .map<GameNotice>((machine) => ({
-        id: `unlock-${machine.id}-${state.depth}`,
+        id: `unlock-${machine.id}-${state.maxDepth}`,
         kind: "unlock",
         name: machine.name,
         detail: `${machine.description}. Disponible dans l’onglet Machines.`,
         machineId: machine.id,
       }));
-    previousDepth.current = state.depth;
+    previousMaxDepth.current = state.maxDepth;
     queueNotices(unlocked);
-  }, [queueNotices, state.depth]);
+  }, [queueNotices, state.maxDepth]);
 
   useEffect(() => {
     const newlyReached: GameNotice[] = [];
@@ -918,6 +1035,7 @@ export default function App() {
   useEffect(() => {
     if (state.impact.id === lastEffectId.current) return;
     lastEffectId.current = state.impact.id;
+    if (state.impact.damage <= 0) return;
     const effect: HitEffect = {
       id: state.impact.id,
       x: pointerRef.current.x,

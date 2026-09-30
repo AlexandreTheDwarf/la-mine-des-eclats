@@ -5,10 +5,14 @@ export type OreId =
   | "azurite"
   | "gold"
   | "ember"
-  | "star";
+  | "star"
+  | "quartz"
+  | "glass"
+  | "dawn";
 
 export type UpgradeId = "power" | "sturdy" | "precision" | "geology" | "maintenance";
-export type MachineId = "drill" | "cart" | "smelter";
+export type MachineId = "drill" | "cart" | "smelter" | "resonator" | "excavator";
+export type LegacyId = "force" | "industry" | "fortune" | "endurance";
 export type EventChoice = "bold" | "careful";
 
 export interface OreDefinition {
@@ -58,6 +62,16 @@ export interface MachineDefinition {
   baseCost: number;
   scale: number;
   unlockDepth: number;
+  max: number;
+}
+
+export interface LegacyDefinition {
+  id: LegacyId;
+  name: string;
+  description: string;
+  baseCost: number;
+  scale: number;
+  max: number;
 }
 
 export interface MineEvent {
@@ -86,11 +100,15 @@ export interface JournalEntry {
 }
 
 export interface GameState {
-  version: 4;
+  version: 5;
   shards: number;
   coins: number;
+  echoes: number;
   depth: number;
+  maxDepth: number;
+  expeditions: number;
   selectedZoneId: number;
+  strataProgress: number;
   rocksBroken: number;
   totalStrikes: number;
   totalMined: number;
@@ -102,6 +120,7 @@ export interface GameState {
   inventory: Record<OreId, number>;
   upgrades: Record<UpgradeId, number>;
   machines: Record<MachineId, number>;
+  legacy: Record<LegacyId, number>;
   salesCompleted: number;
   claimedGoals: string[];
   journal: JournalEntry[];
@@ -122,7 +141,9 @@ export type GameAction =
   | { type: "SELL_ALL" }
   | { type: "BUY_UPGRADE"; id: UpgradeId }
   | { type: "BUY_MACHINE"; id: MachineId }
+  | { type: "BUY_LEGACY"; id: LegacyId }
   | { type: "FORGE_NEXT" }
+  | { type: "START_EXPEDITION" }
   | { type: "CLAIM_GOAL"; id: string }
   | { type: "RESOLVE_EVENT"; choice: EventChoice }
   | { type: "TOGGLE_SOUND" }
@@ -141,9 +162,12 @@ export const ORES: Record<OreId, OreDefinition> = {
   gold: { id: "gold", name: "Or solaire", shortName: "Or", value: 62, color: "#ffbd55", glow: "#ffe6a1" },
   ember: { id: "ember", name: "Braise minérale", shortName: "Braise", value: 145, color: "#ff674c", glow: "#ffb36b" },
   star: { id: "star", name: "Éclat stellaire", shortName: "Stellaire", value: 420, color: "#d9efff", glow: "#ffffff" },
+  quartz: { id: "quartz", name: "Quartz mémoriel", shortName: "Quartz", value: 1_500, color: "#d9c4ff", glow: "#f4edff" },
+  glass: { id: "glass", name: "Verre abyssal", shortName: "Verre", value: 12_000, color: "#4dd6ad", glow: "#a7ffe4" },
+  dawn: { id: "dawn", name: "Métal d'aurore", shortName: "Aurore", value: 85_000, color: "#fff0a8", glow: "#ffffff" },
 };
 
-export const ORE_ORDER: OreId[] = ["stone", "copper", "iron", "azurite", "gold", "ember", "star"];
+export const ORE_ORDER: OreId[] = ["stone", "copper", "iron", "azurite", "gold", "ember", "star", "quartz", "glass", "dawn"];
 
 export const ZONES: ZoneDefinition[] = [
   {
@@ -197,6 +221,57 @@ export const ZONES: ZoneDefinition[] = [
       { id: "star", weight: 24 },
     ],
   },
+  {
+    id: 3,
+    name: "Cathédrale de Quartz",
+    sector: "SECTEUR 04",
+    description: "Des piliers de cristal gardent la mémoire de toutes les descentes.",
+    image: "assets/quartz-cathedral.png",
+    accent: "#d7c5ff",
+    minDepth: 120,
+    rockNames: ["Rosace minérale", "Pilier mémoriel", "Géode liturgique", "Nef cristalline"],
+    orePool: [
+      { id: "azurite", weight: 18 },
+      { id: "gold", weight: 16 },
+      { id: "ember", weight: 16 },
+      { id: "star", weight: 24 },
+      { id: "quartz", weight: 26 },
+    ],
+  },
+  {
+    id: 4,
+    name: "Mer de Verre",
+    sector: "SECTEUR 05",
+    description: "Un océan minéral figé, fendu par une lumière venue d'en dessous.",
+    image: "assets/glass-sea.png",
+    accent: "#64e3bb",
+    minDepth: 220,
+    rockNames: ["Monolithe miroir", "Écueil vitrifié", "Lame tellurique", "Récif d'obsidienne"],
+    orePool: [
+      { id: "gold", weight: 12 },
+      { id: "ember", weight: 16 },
+      { id: "star", weight: 20 },
+      { id: "quartz", weight: 25 },
+      { id: "glass", weight: 27 },
+    ],
+  },
+  {
+    id: 5,
+    name: "Chambre de l'Aube",
+    sector: "SECTEUR 06",
+    description: "Au fond du monde, une mécanique solaire attend d'être réveillée.",
+    image: "assets/dawn-vault.png",
+    accent: "#ffe59b",
+    minDepth: 360,
+    rockNames: ["Cœur héliarque", "Couronne fossile", "Masse aurorale", "Soleil enfoui"],
+    orePool: [
+      { id: "ember", weight: 12 },
+      { id: "star", weight: 18 },
+      { id: "quartz", weight: 21 },
+      { id: "glass", weight: 24 },
+      { id: "dawn", weight: 25 },
+    ],
+  },
 ];
 
 export const TOOLS: ToolDefinition[] = [
@@ -206,6 +281,11 @@ export const TOOLS: ToolDefinition[] = [
   { name: "Marteau prismatique", epithet: "Chaque impact divise la lumière.", damage: 17, durability: 300, coinCost: 4_500, oreCost: { azurite: 60, gold: 8 } },
   { name: "Brise-Faille", epithet: "Forgé là où la montagne brûle.", damage: 36, durability: 430, coinCost: 28_000, oreCost: { ember: 75, gold: 30 } },
   { name: "Clé du Noyau", epithet: "Ce n'est plus vraiment un outil.", damage: 85, durability: 650, coinCost: 180_000, oreCost: { star: 60, ember: 80 } },
+  { name: "Sceptre de Quartz", epithet: "Il se souvient de chaque roche déjà brisée.", damage: 190, durability: 900, coinCost: 1_200_000, oreCost: { star: 120, quartz: 90 } },
+  { name: "Tranche-Verre", epithet: "Une arête assez fine pour ouvrir un reflet.", damage: 430, durability: 1_300, coinCost: 6_000_000, oreCost: { quartz: 180, glass: 75 } },
+  { name: "Bélier d'Aurore", epithet: "Chaque coup annonce un matin qui n'existe pas encore.", damage: 980, durability: 1_900, coinCost: 80_000_000, oreCost: { glass: 160, dawn: 60 } },
+  { name: "Atlas Tellurique", epithet: "La montagne paraît soudain beaucoup moins lourde.", damage: 2_300, durability: 2_800, coinCost: 650_000_000, oreCost: { dawn: 140, star: 300 } },
+  { name: "Étoile de Siège", epithet: "Le dernier argument de l'atelier.", damage: 5_800, durability: 4_200, coinCost: 6_000_000_000, oreCost: { dawn: 320, glass: 500, quartz: 700 } },
 ];
 
 export const UPGRADES: UpgradeDefinition[] = [
@@ -217,9 +297,18 @@ export const UPGRADES: UpgradeDefinition[] = [
 ];
 
 export const MACHINES: MachineDefinition[] = [
-  { id: "drill", name: "Taupe mécanique", description: "+1,6 dégât automatique par seconde", baseCost: 180, scale: 1.72, unlockDepth: 8 },
-  { id: "cart", name: "Wagon trieur", description: "+9 % de minerai à chaque filon", baseCost: 380, scale: 1.76, unlockDepth: 15 },
-  { id: "smelter", name: "Four à induction", description: "+14 % sur toutes les ventes", baseCost: 900, scale: 1.8, unlockDepth: 25 },
+  { id: "drill", name: "Taupe mécanique", description: "+1,6 dégât automatique par seconde", baseCost: 180, scale: 1.72, unlockDepth: 8, max: 24 },
+  { id: "cart", name: "Wagon trieur", description: "+9 % de minerai à chaque filon", baseCost: 380, scale: 1.76, unlockDepth: 15, max: 18 },
+  { id: "smelter", name: "Four à induction", description: "+14 % sur toutes les ventes", baseCost: 900, scale: 1.8, unlockDepth: 25, max: 18 },
+  { id: "resonator", name: "Résonateur profond", description: "+2 points de résonance par frappe", baseCost: 8_000, scale: 1.85, unlockDepth: 70, max: 12 },
+  { id: "excavator", name: "Foreuse cyclopéenne", description: "+180 dégâts automatiques par seconde", baseCost: 120_000, scale: 1.9, unlockDepth: 120, max: 14 },
+];
+
+export const LEGACIES: LegacyDefinition[] = [
+  { id: "force", name: "Mémoire du geste", description: "+38 % de puissance manuelle par niveau", baseCost: 1, scale: 2.05, max: 10 },
+  { id: "industry", name: "Plans persistants", description: "+45 % de puissance automatique par niveau", baseCost: 1, scale: 2.15, max: 10 },
+  { id: "fortune", name: "Écho des filons", description: "+12 % de minerai et de valeur par niveau", baseCost: 2, scale: 2.25, max: 8 },
+  { id: "endurance", name: "Métal souvenu", description: "+15 % de durabilité maximale par niveau", baseCost: 2, scale: 2.3, max: 8 },
 ];
 
 export interface GoalDefinition {
@@ -228,16 +317,25 @@ export interface GoalDefinition {
   description: string;
   target: number;
   progress: (state: GameState) => number;
-  reward: { shards?: number; coins?: number; drill?: number };
+  reward: { shards?: number; coins?: number; echoes?: number; drill?: number };
 }
 
 export const GOALS: GoalDefinition[] = [
   { id: "first-veins", name: "Ça commence", description: "Briser 5 filons", target: 5, progress: (s) => s.rocksBroken, reward: { shards: 50 } },
   { id: "prospector", name: "Les poches pleines", description: "Extraire 40 minerais", target: 40, progress: (s) => s.totalMined, reward: { coins: 120 } },
   { id: "machines", name: "Jamais seul", description: "Installer 3 machines", target: 3, progress: (s) => machineCount(s), reward: { drill: 1 } },
-  { id: "ember", name: "Ça chauffe", description: "Atteindre 25 mètres", target: 25, progress: (s) => s.depth, reward: { shards: 220 } },
-  { id: "core", name: "Sous le monde", description: "Atteindre 60 mètres", target: 60, progress: (s) => s.depth, reward: { shards: 1_000, coins: 2_500 } },
+  { id: "ember", name: "Ça chauffe", description: "Atteindre 25 mètres", target: 25, progress: (s) => s.maxDepth, reward: { shards: 220 } },
+  { id: "core", name: "Sous le monde", description: "Atteindre 60 mètres", target: 60, progress: (s) => s.maxDepth, reward: { shards: 1_000, coins: 2_500 } },
   { id: "industry", name: "Petit empire", description: "Briser 150 filons", target: 150, progress: (s) => s.rocksBroken, reward: { coins: 8_000 } },
+  { id: "cathedral", name: "La quatrième porte", description: "Atteindre 120 mètres", target: 120, progress: (s) => s.maxDepth, reward: { echoes: 1, coins: 25_000 } },
+  { id: "first-cycle", name: "Revenir autrement", description: "Lancer une expédition", target: 1, progress: (s) => s.expeditions, reward: { echoes: 3 } },
+  { id: "deep-industry", name: "Quart de nuit", description: "Briser 500 filons", target: 500, progress: (s) => s.rocksBroken, reward: { coins: 180_000 } },
+  { id: "glass-sea", name: "Marcher sur le vide", description: "Atteindre 220 mètres", target: 220, progress: (s) => s.maxDepth, reward: { shards: 8_000, coins: 500_000 } },
+  { id: "second-cycle", name: "La mine se souvient", description: "Lancer deux expéditions", target: 2, progress: (s) => s.expeditions, reward: { echoes: 6 } },
+  { id: "dawn", name: "Avant le matin", description: "Atteindre 360 mètres", target: 360, progress: (s) => s.maxDepth, reward: { shards: 25_000, coins: 8_000_000 } },
+  { id: "third-cycle", name: "Plus bas que la fin", description: "Lancer trois expéditions", target: 3, progress: (s) => s.expeditions, reward: { echoes: 10 } },
+  { id: "foreman", name: "Contremaître du monde", description: "Briser 1 500 filons", target: 1_500, progress: (s) => s.rocksBroken, reward: { coins: 120_000_000 } },
+  { id: "deepest", name: "Il reste encore du fond", description: "Atteindre 600 mètres", target: 600, progress: (s) => s.maxDepth, reward: { echoes: 20, coins: 1_000_000_000 } },
 ];
 
 export interface DerivedStats {
@@ -248,6 +346,7 @@ export interface DerivedStats {
   autoDamage: number;
   yieldMultiplier: number;
   saleMultiplier: number;
+  resonanceGain: number;
   repairCost: number;
   durabilityLoss: number;
   inventoryValue: number;
@@ -261,10 +360,14 @@ const emptyInventory = (): Record<OreId, number> => ({
   gold: 0,
   ember: 0,
   star: 0,
+  quartz: 0,
+  glass: 0,
+  dawn: 0,
 });
 
 const emptyUpgrades = (): Record<UpgradeId, number> => ({ power: 0, sturdy: 0, precision: 0, geology: 0, maintenance: 0 });
-const emptyMachines = (): Record<MachineId, number> => ({ drill: 0, cart: 0, smelter: 0 });
+const emptyMachines = (): Record<MachineId, number> => ({ drill: 0, cart: 0, smelter: 0, resonator: 0, excavator: 0 });
+const emptyLegacy = (): Record<LegacyId, number> => ({ force: 0, industry: 0, fortune: 0, endurance: 0 });
 
 export function zoneForDepth(depth: number): ZoneDefinition {
   return [...ZONES].reverse().find((zone) => depth >= zone.minDepth) ?? ZONES[0];
@@ -278,9 +381,26 @@ export function activeZoneForState(state: Pick<GameState, "depth" | "selectedZon
 
 export function rockMaxHpFor(depth: number): number {
   const zone = zoneForDepth(depth);
-  const zoneMultiplier = [1, 2.05, 4.4][zone.id] ?? 1;
-  const deepRockPressure = Math.pow(1.008, Math.max(0, depth - 15));
+  const zoneMultiplier = [1, 2.05, 4.4, 11, 25, 60][zone.id] ?? 60;
+  const deepRockPressure = Math.pow(1.0065, Math.max(0, depth - 15));
   return Math.round((10 + depth * 2.35 + Math.pow(depth, 1.2) * 0.36) * zoneMultiplier * deepRockPressure);
+}
+
+export function veinsPerMeterFor(depth: number): number {
+  return [1, 2, 3, 5, 7, 9][zoneForDepth(depth).id] ?? 9;
+}
+
+export function expeditionTarget(expeditions: number): number {
+  const fixedTargets = [120, 240, 400, 600];
+  return fixedTargets[expeditions] ?? 600 + (expeditions - 3) * 200;
+}
+
+export function expeditionReward(state: Pick<GameState, "depth" | "expeditions">): number {
+  return Math.max(1, Math.floor(Math.pow(state.depth / 40, 1.18)) + state.expeditions * 3);
+}
+
+export function canStartExpedition(state: Pick<GameState, "depth" | "expeditions">): boolean {
+  return state.depth >= expeditionTarget(state.expeditions);
 }
 
 export function rockNameFor(state: GameState): string {
@@ -291,11 +411,15 @@ export function rockNameFor(state: GameState): string {
 export function createInitialState(): GameState {
   const rockMaxHp = rockMaxHpFor(1);
   return {
-    version: 4,
+    version: 5,
     shards: 0,
     coins: 0,
+    echoes: 0,
     depth: 1,
+    maxDepth: 1,
+    expeditions: 0,
     selectedZoneId: 0,
+    strataProgress: 0,
     rocksBroken: 0,
     totalStrikes: 0,
     totalMined: 0,
@@ -307,6 +431,7 @@ export function createInitialState(): GameState {
     inventory: emptyInventory(),
     upgrades: emptyUpgrades(),
     machines: emptyMachines(),
+    legacy: emptyLegacy(),
     salesCompleted: 0,
     claimedGoals: [],
     journal: [{ id: 1, text: "La première galerie attend. Trois silhouettes observent depuis les poutres.", tone: "normal" }],
@@ -325,6 +450,7 @@ function normalizeState(candidate: Partial<GameState>): GameState {
   const toolTier = clamp(Math.floor(candidate.toolTier ?? 0), 0, TOOLS.length - 1);
   const candidateMachines = { ...base.machines, ...(candidate.machines ?? {}) };
   const candidateUpgrades = { ...base.upgrades, ...(candidate.upgrades ?? {}) };
+  const candidateLegacy = { ...base.legacy, ...(candidate.legacy ?? {}) };
   const inferredPreviousSale =
     Number(candidate.coins ?? 0) > 0
     || Object.values(candidateMachines).some((level) => level > 0)
@@ -334,11 +460,14 @@ function normalizeState(candidate: Partial<GameState>): GameState {
   const merged: GameState = {
     ...base,
     ...candidate,
-    version: 4,
+    version: 5,
     toolTier,
     inventory: { ...base.inventory, ...(candidate.inventory ?? {}) },
     upgrades: candidateUpgrades,
     machines: candidateMachines,
+    legacy: candidateLegacy,
+    echoes: Math.max(0, Math.floor(Number(candidate.echoes) || 0)),
+    expeditions: Math.max(0, Math.floor(Number(candidate.expeditions) || 0)),
     salesCompleted: Math.max(0, Math.floor(candidate.salesCompleted ?? (inferredPreviousSale ? 1 : 0))),
     claimedGoals: Array.isArray(candidate.claimedGoals) ? candidate.claimedGoals : [],
     journal: Array.isArray(candidate.journal) && candidate.journal.length ? candidate.journal.slice(0, 12) : base.journal,
@@ -350,6 +479,12 @@ function normalizeState(candidate: Partial<GameState>): GameState {
   const maxDurability = getDerivedStats(merged).maxDurability;
   merged.durability = clamp(Number(merged.durability) || 0, 0, maxDurability);
   merged.depth = Math.max(1, Math.floor(Number(merged.depth) || 1));
+  merged.maxDepth = Math.max(merged.depth, Math.floor(Number(candidate.maxDepth) || merged.depth));
+  merged.strataProgress = clamp(
+    Math.floor(Number(candidate.strataProgress) || 0),
+    0,
+    veinsPerMeterFor(merged.depth) - 1,
+  );
   const deepestZoneId = zoneForDepth(merged.depth).id;
   const requestedZoneId = Number(candidate.selectedZoneId);
   merged.selectedZoneId = Number.isFinite(requestedZoneId)
@@ -397,11 +532,12 @@ function applyOfflineProgress(state: GameState): GameState {
   const work = stats.autoDamage * elapsed;
   const shards = Math.floor(work / 18);
   const ore = Math.floor(work / 34);
+  const offlineOre = activeZoneForState(state).orePool[0].id;
   return {
     ...state,
     shards: state.shards + shards,
     totalMined: state.totalMined + ore,
-    inventory: { ...state.inventory, stone: state.inventory.stone + ore },
+    inventory: { ...state.inventory, [offlineOre]: state.inventory[offlineOre] + ore },
     offlineReport: { seconds: elapsed, shards, ore },
     message: "Les machines ont continué à gratter la montagne.",
     lastSavedAt: Date.now(),
@@ -419,13 +555,18 @@ export function saveGame(state: GameState): void {
 
 export function getDerivedStats(state: GameState): DerivedStats {
   const tool = TOOLS[state.toolTier];
-  const clickDamage = Math.max(1, Math.round(tool.damage * (1 + state.upgrades.power * 0.45)));
-  const maxDurability = tool.durability + state.upgrades.sturdy * 25;
-  const critChance = Math.min(0.52, 0.06 + state.upgrades.precision * 0.03 + (state.depth >= 60 ? 0.04 : 0));
+  const manualLegacy = Math.pow(1.38, state.legacy.force);
+  const industryLegacy = Math.pow(1.45, state.legacy.industry);
+  const fortuneLegacy = Math.pow(1.12, state.legacy.fortune);
+  const enduranceLegacy = Math.pow(1.15, state.legacy.endurance);
+  const clickDamage = Math.max(1, Math.round(tool.damage * (1 + state.upgrades.power * 0.45) * manualLegacy));
+  const maxDurability = Math.round((tool.durability + state.upgrades.sturdy * 25) * enduranceLegacy);
+  const critChance = Math.min(0.52, 0.06 + state.upgrades.precision * 0.03 + (state.maxDepth >= 60 ? 0.04 : 0));
   const critMultiplier = 2 + Math.floor(state.upgrades.precision / 5) * 0.25;
-  const autoDamage = state.machines.drill * 1.6 * (1 + state.toolTier * 0.18);
-  const yieldMultiplier = 1 + state.machines.cart * 0.09 + state.upgrades.geology * 0.07;
-  const saleMultiplier = 1 + state.machines.smelter * 0.14 + (state.depth >= 25 ? 0.05 : 0);
+  const autoDamage = (state.machines.drill * 1.6 + state.machines.excavator * 180) * (1 + state.toolTier * 0.18) * industryLegacy;
+  const yieldMultiplier = (1 + state.machines.cart * 0.09 + state.upgrades.geology * 0.07) * fortuneLegacy;
+  const saleMultiplier = (1 + state.machines.smelter * 0.14 + (state.maxDepth >= 25 ? 0.05 : 0)) * fortuneLegacy;
+  const resonanceGain = 6 + state.machines.resonator * 2;
   const missing = Math.max(0, maxDurability - state.durability);
   const discount = Math.max(0.28, 1 - state.upgrades.maintenance * 0.09);
   const repairCost = Math.max(2, Math.ceil((missing * 0.1 + state.toolTier * 3) * discount));
@@ -433,7 +574,7 @@ export function getDerivedStats(state: GameState): DerivedStats {
   const inventoryValue = Math.round(
     ORE_ORDER.reduce((sum, id) => sum + state.inventory[id] * ORES[id].value, 0) * saleMultiplier,
   );
-  return { clickDamage, maxDurability, critChance, critMultiplier, autoDamage, yieldMultiplier, saleMultiplier, repairCost, durabilityLoss, inventoryValue };
+  return { clickDamage, maxDurability, critChance, critMultiplier, autoDamage, yieldMultiplier, saleMultiplier, resonanceGain, repairCost, durabilityLoss, inventoryValue };
 }
 
 export function upgradeCost(definition: UpgradeDefinition, level: number): number {
@@ -441,6 +582,10 @@ export function upgradeCost(definition: UpgradeDefinition, level: number): numbe
 }
 
 export function machineCost(definition: MachineDefinition, level: number): number {
+  return Math.ceil(definition.baseCost * Math.pow(definition.scale, level));
+}
+
+export function legacyCost(definition: LegacyDefinition, level: number): number {
   return Math.ceil(definition.baseCost * Math.pow(definition.scale, level));
 }
 
@@ -475,12 +620,15 @@ function rollOre(zone: ZoneDefinition, geologyLevel: number): OreId {
   return boosted[0].id;
 }
 
-function randomEvent(): MineEvent {
+function randomEvent(zone: ZoneDefinition): MineEvent {
   const events: MineEvent[] = [
     { kind: "song", title: "La veine chantante", description: "Une vibration régulière traverse le filon, presque comme une mélodie." },
     { kind: "cache", title: "La caisse oubliée", description: "Une vieille caisse de prospecteur apparaît derrière la roche fendue." },
     { kind: "fracture", title: "La faille fragile", description: "Le mur pourrait céder. Il cache quelque chose, mais il faudra choisir comment l'ouvrir." },
   ];
+  if (zone.id >= 3) events.push({ kind: "song", title: "La mémoire du cristal", description: "Le filon rejoue le bruit d'une ancienne expédition. Cette fois, le choix peut changer l'écho." });
+  if (zone.id >= 4) events.push({ kind: "fracture", title: "Le reflet sans mineur", description: "Dans le verre noir, une pioche frappe avec une seconde d'avance sur la tienne." });
+  if (zone.id >= 5) events.push({ kind: "cache", title: "Le mécanisme solaire", description: "Une roue de métal clair tourne encore sous la roche, alimentée par une chaleur impossible." });
   return events[Math.floor(Math.random() * events.length)];
 }
 
@@ -488,6 +636,9 @@ function breakRock(state: GameState, automatic = false): GameState {
   const activeZone = activeZoneForState(state);
   const deepestZone = zoneForDepth(state.depth);
   const progressesDepth = activeZone.id === deepestZone.id;
+  const targetDepth = expeditionTarget(state.expeditions);
+  const canDescend = progressesDepth && state.depth < targetDepth;
+  const veinsNeeded = veinsPerMeterFor(state.depth);
   const stats = getDerivedStats(state);
   const inventory = { ...state.inventory };
   const expectedRolls = expectedOreYield(state.depth, stats.yieldMultiplier);
@@ -501,27 +652,40 @@ function breakRock(state: GameState, automatic = false): GameState {
     mined += 1;
   }
 
-  const nextDepth = progressesDepth ? state.depth + 1 : state.depth;
-  const nextZone = progressesDepth ? zoneForDepth(nextDepth) : activeZone;
+  const advancedStrata = canDescend ? state.strataProgress + 1 : state.strataProgress;
+  const advancesDepth = canDescend && advancedStrata >= veinsNeeded;
+  const nextDepth = advancesDepth ? state.depth + 1 : state.depth;
+  const nextStrataProgress = !progressesDepth
+    ? state.strataProgress
+    : advancesDepth || !canDescend
+      ? 0
+      : advancedStrata;
+  const nextZone = advancesDepth ? zoneForDepth(nextDepth) : activeZone;
   const rockMaxHp = rockMaxHpFor(nextDepth);
   const bonusShards = Math.max(2, Math.round(Math.sqrt(state.depth) * (automatic ? 0.7 : 1.1)));
   let next: GameState = {
     ...state,
     shards: state.shards + bonusShards,
     depth: nextDepth,
+    maxDepth: Math.max(state.maxDepth, nextDepth),
     selectedZoneId: nextZone.id,
+    strataProgress: nextStrataProgress,
     rocksBroken: state.rocksBroken + 1,
     totalMined: state.totalMined + mined,
     inventory,
     rockHp: rockMaxHp,
     rockMaxHp,
     rockRevision: state.rockRevision + 1,
-    message: progressesDepth
+    message: !progressesDepth
+      ? `${mined} minerais récupérés · profondeur conservée à ${state.depth} m.`
+      : !canDescend
+        ? `${mined} minerais récupérés · balise saturée à ${targetDepth} m, un nouveau cycle est prêt.`
+        : advancesDepth
       ? `${mined} minerais libérés · le prochain filon est plus profond.`
-      : `${mined} minerais récupérés · profondeur conservée à ${state.depth} m.`,
+      : `${mined} minerais libérés · strate ${nextStrataProgress}/${veinsNeeded} stabilisée.`,
   };
 
-  if (progressesDepth && nextZone.id !== activeZone.id) {
+  if (advancesDepth && nextZone.id !== activeZone.id) {
     next = addJournal(next, `${nextZone.name} découverte. La mine vient de changer de visage.`, "rare");
     next.message = `${nextZone.name.toUpperCase()} · nouveau secteur découvert.`;
   } else if (next.rocksBroken === 1) {
@@ -531,7 +695,7 @@ function breakRock(state: GameState, automatic = false): GameState {
   }
 
   if (!next.activeEvent && next.rocksBroken > 2 && Math.random() < 0.11) {
-    next.activeEvent = randomEvent();
+    next.activeEvent = randomEvent(activeZone);
   }
 
   return next;
@@ -568,7 +732,7 @@ function strike(state: GameState): GameState {
     totalStrikes: state.totalStrikes + 1,
     durability: Math.max(0, state.durability - stats.durabilityLoss),
     rockHp: state.rockHp - damage,
-    resonance: state.resonance + (crit ? 10 : 6),
+    resonance: state.resonance + (crit ? stats.resonanceGain + 4 : stats.resonanceGain),
     impact: { id: state.impact.id + 1, damage, crit, shards: shardGain },
     message: crit ? "IMPACT PARFAIT · la pierre se fend net." : "La roche cède, morceau après morceau.",
   };
@@ -688,8 +852,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
     case "BUY_MACHINE": {
       const definition = MACHINES.find((machine) => machine.id === action.id);
-      if (!definition || state.depth < definition.unlockDepth) return state;
+      if (!definition || state.maxDepth < definition.unlockDepth) return state;
       const level = state.machines[action.id];
+      if (level >= definition.max) return state;
       const cost = machineCost(definition, level);
       if (state.coins < cost) return { ...state, message: "L'atelier n'a pas encore les moyens." };
       return addJournal(
@@ -697,11 +862,30 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           ...state,
           coins: state.coins - cost,
           machines: { ...state.machines, [action.id]: level + 1 },
-          message: `${definition.name} installée. La mine travaille un peu plus seule.`,
+          message: `${definition.name} rejoint l'atelier. La mine travaille un peu plus seule.`,
         },
         `${definition.name} rejoint l'atelier.`,
         "good",
       );
+    }
+    case "BUY_LEGACY": {
+      const definition = LEGACIES.find((legacy) => legacy.id === action.id);
+      if (!definition) return state;
+      const level = state.legacy[action.id];
+      if (level >= definition.max) return state;
+      const cost = legacyCost(definition, level);
+      if (state.echoes < cost) return { ...state, message: "Il manque des échos de profondeur." };
+      const oldStats = getDerivedStats(state);
+      const next: GameState = {
+        ...state,
+        echoes: state.echoes - cost,
+        legacy: { ...state.legacy, [action.id]: level + 1 },
+        message: `${definition.name} gravée au niveau ${level + 1}.`,
+      };
+      if (action.id === "endurance") {
+        next.durability += getDerivedStats(next).maxDurability - oldStats.maxDurability;
+      }
+      return next;
     }
     case "FORGE_NEXT": {
       const nextTool = TOOLS[state.toolTier + 1];
@@ -717,10 +901,36 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         coins: state.coins - nextTool.coinCost,
         toolTier: state.toolTier + 1,
         inventory,
-        durability: nextTool.durability + state.upgrades.sturdy * 25,
+        durability: state.durability,
         message: `${nextTool.name.toUpperCase()} · une nouvelle époque commence.`,
       };
+      next.durability = getDerivedStats(next).maxDurability;
       return addJournal(next, `${nextTool.name} forgée. ${nextTool.epithet}`, "rare");
+    }
+    case "START_EXPEDITION": {
+      if (!canStartExpedition(state)) return { ...state, message: `La balise exige ${expeditionTarget(state.expeditions)} mètres.` };
+      const reward = expeditionReward(state);
+      const fresh = createInitialState();
+      return {
+        ...fresh,
+        version: 5,
+        echoes: state.echoes + reward,
+        maxDepth: Math.max(state.maxDepth, state.depth),
+        expeditions: state.expeditions + 1,
+        legacy: state.legacy,
+        rocksBroken: state.rocksBroken,
+        totalStrikes: state.totalStrikes,
+        totalMined: state.totalMined,
+        salesCompleted: state.salesCompleted,
+        claimedGoals: state.claimedGoals,
+        soundOn: state.soundOn,
+        impact: { ...fresh.impact, id: state.impact.id + 1 },
+        journal: [
+          { id: Date.now(), text: `Cycle ${state.expeditions + 2} engagé. ${reward} échos ont survécu à la remontée.`, tone: "rare" as const },
+          ...state.journal,
+        ].slice(0, 10),
+        message: `NOUVEAU CYCLE · ${reward} échos conservés, prochaine balise à ${expeditionTarget(state.expeditions + 1)} m.`,
+      };
     }
     case "CLAIM_GOAL": {
       const goal = GOALS.find((candidate) => candidate.id === action.id);
@@ -729,6 +939,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         ...state,
         shards: state.shards + (goal.reward.shards ?? 0),
         coins: state.coins + (goal.reward.coins ?? 0),
+        echoes: state.echoes + (goal.reward.echoes ?? 0),
         machines: { ...state.machines, drill: state.machines.drill + (goal.reward.drill ?? 0) },
         claimedGoals: [...state.claimedGoals, goal.id],
         message: `Objectif accompli · ${goal.name}.`,
