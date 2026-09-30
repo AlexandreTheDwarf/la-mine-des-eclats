@@ -13,6 +13,7 @@ import {
   Hammer,
   HardHat,
   Lock,
+  Map,
   Package,
   Pickaxe,
   RotateCcw,
@@ -48,6 +49,8 @@ import {
   ORE_ORDER,
   TOOLS,
   UPGRADES,
+  ZONES,
+  activeZoneForState,
   canForgeNext,
   decodeSave,
   encodeSave,
@@ -107,6 +110,8 @@ const tabDefinitions: Array<{ id: PanelTab; label: string; icon: LucideIcon }> =
   { id: "forge", label: "Forge", icon: Hammer },
   { id: "goals", label: "Objectifs", icon: Trophy },
 ];
+
+const zoneShortNames = ["Azur", "Faille", "Noyau"];
 
 function NoticeStack({
   notices,
@@ -313,14 +318,18 @@ function MineStage({
   effects,
   onStrike,
   onRepair,
+  onSelectZone,
 }: {
   state: GameState;
   effects: HitEffect[];
   onStrike: (event: MouseEvent<HTMLButtonElement>) => void;
   onRepair: () => void;
+  onSelectZone: (id: number) => void;
 }) {
   const stats = getDerivedStats(state);
-  const zone = zoneForDepth(state.depth);
+  const zone = activeZoneForState(state);
+  const deepestZone = zoneForDepth(state.depth);
+  const isRevisiting = zone.id !== deepestZone.id;
   const tool = TOOLS[state.toolTier];
   const rockHealth = (state.rockHp / state.rockMaxHp) * 100;
   const durability = (state.durability / stats.maxDurability) * 100;
@@ -328,13 +337,49 @@ function MineStage({
   const backgroundUrl = `${import.meta.env.BASE_URL}${zone.image}`;
 
   return (
-    <section className={`mine-stage mine-stage--zone-${zone.id}`} style={{ "--zone-accent": zone.accent } as CSSProperties}>
-      <img className="mine-stage__backdrop" src={backgroundUrl} alt="" aria-hidden="true" key={zone.id} />
+    <section
+      className={`mine-stage mine-stage--zone-${zone.id}`}
+      style={{ "--zone-accent": zone.accent } as CSSProperties}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <img className="mine-stage__backdrop" src={backgroundUrl} alt="" aria-hidden="true" draggable={false} key={zone.id} />
       <div className="mine-stage__shade" aria-hidden="true" />
       <div className="zone-title">
         <span>{zone.sector}</span>
         <strong>{zone.name}</strong>
         <small>{zone.description}</small>
+      </div>
+
+      <div className="zone-switcher" aria-label="Choisir une galerie">
+        <div className="zone-switcher__status">
+          <Map aria-hidden="true" />
+          <span>
+            <strong>{isRevisiting ? "PROSPECTION" : "DESCENTE"}</strong>
+            <small>{isRevisiting ? `${state.depth} m conservés` : "profondeur active"}</small>
+          </span>
+        </div>
+        <div className="zone-switcher__options" role="group" aria-label="Galeries découvertes">
+          {ZONES.map((candidate) => {
+            const unlocked = state.depth >= candidate.minDepth;
+            const active = candidate.id === zone.id;
+            return (
+              <button
+                className={active ? "is-active" : ""}
+                type="button"
+                key={candidate.id}
+                aria-label={unlocked ? `Aller dans ${candidate.name}` : `${candidate.name}, disponible à ${candidate.minDepth} mètres`}
+                aria-pressed={active}
+                title={unlocked ? candidate.name : `Débloqué à ${candidate.minDepth} m`}
+                disabled={!unlocked || Boolean(state.activeEvent)}
+                onClick={() => onSelectZone(candidate.id)}
+              >
+                <span>{String(candidate.id + 1).padStart(2, "0")}</span>
+                <strong>{zoneShortNames[candidate.id]}</strong>
+                {!unlocked ? <Lock aria-hidden="true" /> : active ? <Check aria-hidden="true" /> : null}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="rock-status">
@@ -718,7 +763,7 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>LOCAL · VERSION 0.3</small><h2 id="settings-title">Sauvegarde</h2></div>
+          <div><small>LOCAL · VERSION 0.3.1</small><h2 id="settings-title">Sauvegarde</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
@@ -797,7 +842,7 @@ export default function App() {
       .filter((goal) => goal.progress(state) >= goal.target || state.claimedGoals.includes(goal.id))
       .map((goal) => goal.id),
   ));
-  const zone = zoneForDepth(state.depth);
+  const zone = activeZoneForState(state);
   const goalProgressKey = GOALS
     .map((goal) => `${goal.id}:${goal.progress(state) >= goal.target ? 1 : 0}:${state.claimedGoals.includes(goal.id) ? 1 : 0}`)
     .join("|");
@@ -913,6 +958,7 @@ export default function App() {
           effects={effects}
           onStrike={handleStrike}
           onRepair={() => dispatch({ type: "REPAIR" })}
+          onSelectZone={(id) => dispatch({ type: "SELECT_ZONE", id })}
         />
         <CommandPanel state={state} dispatch={dispatch} activeTab={activeTab} onTab={setActiveTab} />
       </main>

@@ -2,8 +2,10 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
-## Version 0.3
+## Version 0.3.1
 
+- sélecteur de galeries pour retourner chercher les anciens minerais sans perdre la profondeur atteinte ;
+- zone de minage protégée contre la sélection de texte et d'image sur mobile ;
 - économie rééquilibrée et rendement des wagons corrigé ;
 - notifications animées pour les machines débloquées et les objectifs atteints ;
 - mini-tutoriel contextuel pour la vente des minerais ;

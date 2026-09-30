@@ -86,10 +86,11 @@ export interface JournalEntry {
 }
 
 export interface GameState {
-  version: 3;
+  version: 4;
   shards: number;
   coins: number;
   depth: number;
+  selectedZoneId: number;
   rocksBroken: number;
   totalStrikes: number;
   totalMined: number;
@@ -116,6 +117,7 @@ export interface GameState {
 export type GameAction =
   | { type: "STRIKE" }
   | { type: "TICK"; seconds: number }
+  | { type: "SELECT_ZONE"; id: number }
   | { type: "REPAIR" }
   | { type: "SELL_ALL" }
   | { type: "BUY_UPGRADE"; id: UpgradeId }
@@ -268,6 +270,12 @@ export function zoneForDepth(depth: number): ZoneDefinition {
   return [...ZONES].reverse().find((zone) => depth >= zone.minDepth) ?? ZONES[0];
 }
 
+export function activeZoneForState(state: Pick<GameState, "depth" | "selectedZoneId">): ZoneDefinition {
+  const deepestZone = zoneForDepth(state.depth);
+  const selectedZoneId = clamp(Math.floor(Number(state.selectedZoneId)), 0, deepestZone.id);
+  return ZONES.find((zone) => zone.id === selectedZoneId) ?? deepestZone;
+}
+
 export function rockMaxHpFor(depth: number): number {
   const zone = zoneForDepth(depth);
   const zoneMultiplier = [1, 2.05, 4.4][zone.id] ?? 1;
@@ -276,17 +284,18 @@ export function rockMaxHpFor(depth: number): number {
 }
 
 export function rockNameFor(state: GameState): string {
-  const zone = zoneForDepth(state.depth);
+  const zone = activeZoneForState(state);
   return zone.rockNames[state.rockRevision % zone.rockNames.length];
 }
 
 export function createInitialState(): GameState {
   const rockMaxHp = rockMaxHpFor(1);
   return {
-    version: 3,
+    version: 4,
     shards: 0,
     coins: 0,
     depth: 1,
+    selectedZoneId: 0,
     rocksBroken: 0,
     totalStrikes: 0,
     totalMined: 0,
@@ -325,7 +334,7 @@ function normalizeState(candidate: Partial<GameState>): GameState {
   const merged: GameState = {
     ...base,
     ...candidate,
-    version: 3,
+    version: 4,
     toolTier,
     inventory: { ...base.inventory, ...(candidate.inventory ?? {}) },
     upgrades: candidateUpgrades,
@@ -341,6 +350,11 @@ function normalizeState(candidate: Partial<GameState>): GameState {
   const maxDurability = getDerivedStats(merged).maxDurability;
   merged.durability = clamp(Number(merged.durability) || 0, 0, maxDurability);
   merged.depth = Math.max(1, Math.floor(Number(merged.depth) || 1));
+  const deepestZoneId = zoneForDepth(merged.depth).id;
+  const requestedZoneId = Number(candidate.selectedZoneId);
+  merged.selectedZoneId = Number.isFinite(requestedZoneId)
+    ? clamp(Math.floor(requestedZoneId), 0, deepestZoneId)
+    : deepestZoneId;
   merged.rockMaxHp = Math.max(1, Number(merged.rockMaxHp) || rockMaxHpFor(merged.depth));
   merged.rockHp = clamp(Number(merged.rockHp) || merged.rockMaxHp, 0, merged.rockMaxHp);
   return merged;
@@ -471,7 +485,9 @@ function randomEvent(): MineEvent {
 }
 
 function breakRock(state: GameState, automatic = false): GameState {
-  const oldZone = zoneForDepth(state.depth);
+  const activeZone = activeZoneForState(state);
+  const deepestZone = zoneForDepth(state.depth);
+  const progressesDepth = activeZone.id === deepestZone.id;
   const stats = getDerivedStats(state);
   const inventory = { ...state.inventory };
   const expectedRolls = expectedOreYield(state.depth, stats.yieldMultiplier);
@@ -480,29 +496,32 @@ function breakRock(state: GameState, automatic = false): GameState {
   let mined = 0;
 
   for (let index = 0; index < rolls; index += 1) {
-    const ore = rollOre(oldZone, state.upgrades.geology);
+    const ore = rollOre(activeZone, state.upgrades.geology);
     inventory[ore] += 1;
     mined += 1;
   }
 
-  const nextDepth = state.depth + 1;
-  const nextZone = zoneForDepth(nextDepth);
+  const nextDepth = progressesDepth ? state.depth + 1 : state.depth;
+  const nextZone = progressesDepth ? zoneForDepth(nextDepth) : activeZone;
   const rockMaxHp = rockMaxHpFor(nextDepth);
   const bonusShards = Math.max(2, Math.round(Math.sqrt(state.depth) * (automatic ? 0.7 : 1.1)));
   let next: GameState = {
     ...state,
     shards: state.shards + bonusShards,
     depth: nextDepth,
+    selectedZoneId: nextZone.id,
     rocksBroken: state.rocksBroken + 1,
     totalMined: state.totalMined + mined,
     inventory,
     rockHp: rockMaxHp,
     rockMaxHp,
     rockRevision: state.rockRevision + 1,
-    message: `${mined} minerais libérés · le prochain filon est plus profond.`,
+    message: progressesDepth
+      ? `${mined} minerais libérés · le prochain filon est plus profond.`
+      : `${mined} minerais récupérés · profondeur conservée à ${state.depth} m.`,
   };
 
-  if (nextZone.id !== oldZone.id) {
+  if (progressesDepth && nextZone.id !== activeZone.id) {
     next = addJournal(next, `${nextZone.name} découverte. La mine vient de changer de visage.`, "rare");
     next.message = `${nextZone.name.toUpperCase()} · nouveau secteur découvert.`;
   } else if (next.rocksBroken === 1) {
@@ -520,7 +539,7 @@ function breakRock(state: GameState, automatic = false): GameState {
 
 function applyResonance(state: GameState): GameState {
   if (state.resonance < 100) return state;
-  const zone = zoneForDepth(state.depth);
+  const zone = activeZoneForState(state);
   const rareOre = zone.orePool[zone.orePool.length - 1].id;
   const inventory = { ...state.inventory, [rareOre]: state.inventory[rareOre] + 3 };
   return addJournal(
@@ -579,7 +598,7 @@ function tick(state: GameState, seconds: number): GameState {
 function resolveEvent(state: GameState, choice: EventChoice): GameState {
   if (!state.activeEvent) return state;
   const event = state.activeEvent;
-  const zone = zoneForDepth(state.depth);
+  const zone = activeZoneForState(state);
   const rareOre = zone.orePool[zone.orePool.length - 1].id;
   let next = { ...state, activeEvent: null };
 
@@ -604,6 +623,24 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       return strike(state);
     case "TICK":
       return tick(state, action.seconds);
+    case "SELECT_ZONE": {
+      if (state.activeEvent) return state;
+      const selectedZone = ZONES.find((zone) => zone.id === action.id);
+      const deepestZone = zoneForDepth(state.depth);
+      if (!selectedZone || selectedZone.minDepth > state.depth || selectedZone.id > deepestZone.id) return state;
+      if (selectedZone.id === activeZoneForState(state).id) return state;
+      const rockMaxHp = rockMaxHpFor(state.depth);
+      return {
+        ...state,
+        selectedZoneId: selectedZone.id,
+        rockHp: rockMaxHp,
+        rockMaxHp,
+        rockRevision: state.rockRevision + 1,
+        message: selectedZone.id === deepestZone.id
+          ? `${selectedZone.name.toUpperCase()} · la descente reprend.`
+          : `${selectedZone.name.toUpperCase()} · anciens minerais accessibles, profondeur conservée.`,
+      };
+    }
     case "REPAIR": {
       const stats = getDerivedStats(state);
       if (state.durability >= stats.maxDurability) return state;
