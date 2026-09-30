@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   LEGACIES,
+  MARKET_PERIOD_MS,
   ORE_ORDER,
   TOOLS,
   activeZoneForState,
@@ -13,7 +14,9 @@ import {
   gameReducer,
   getDerivedStats,
   inventoryCount,
+  marketQuoteAt,
   rockMaxHpFor,
+  selectedInventoryValue,
   veinsPerMeterFor,
   zoneForDepth,
 } from "../src/game.ts";
@@ -37,6 +40,25 @@ state = gameReducer(state, { type: "SELL_ALL" });
 assert.equal(inventoryCount(state), 0, "selling should empty the inventory");
 assert.equal(state.coins, valueBeforeSale, "selling should grant the computed value");
 assert.equal(state.salesCompleted, 1, "selling should complete the contextual sales tutorial");
+
+const quoteTime = 1_800_000;
+const marketQuote = marketQuoteAt(quoteTime);
+assert.deepEqual(marketQuoteAt(quoteTime), marketQuote, "a market window should keep stable prices");
+assert.equal(marketQuote.endsAt, (marketQuote.slot + 1) * MARKET_PERIOD_MS);
+Object.values(marketQuote.rates).forEach((rate) => {
+  assert.ok(rate >= 0.72 && rate <= 1.4, "market prices should stay inside their designed range");
+});
+
+let selectiveSaleState = createInitialState();
+selectiveSaleState = {
+  ...selectiveSaleState,
+  inventory: { ...selectiveSaleState.inventory, stone: 10, copper: 5 },
+};
+const selectiveValue = selectedInventoryValue(selectiveSaleState, ["stone"], { stone: 1.4 });
+selectiveSaleState = gameReducer(selectiveSaleState, { type: "SELL_SELECTED", ids: ["stone"], rates: { stone: 1.4 } });
+assert.equal(selectiveSaleState.coins, selectiveValue, "selective sales should use the displayed market rate");
+assert.equal(selectiveSaleState.inventory.stone, 0, "a selected ore should be sold");
+assert.equal(selectiveSaleState.inventory.copper, 5, "an unselected ore should remain in the cargo");
 
 assert.equal(
   expectedOreYield(22, 2),
@@ -141,4 +163,4 @@ assert.equal(migratedSave.version, 5, "old saves should migrate to the extended 
 assert.equal(migratedSave.maxDepth, 60, "old saves should preserve their depth as a permanent record");
 assert.equal(migratedSave.inventory.dawn, 0, "old saves should receive the new ore slots");
 
-console.log("OK: mining, repair, galleries, extended zones, legacies and expedition cycles.");
+console.log("OK: mining, selective market sales, galleries, legacies and expedition cycles.");

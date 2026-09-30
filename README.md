@@ -2,6 +2,13 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
+## Version 0.4.1
+
+- bourse des filons débloquée à 25 mètres, avec cours individuels renouvelés toutes les 45 secondes ;
+- vente sélective pour conserver les minerais utiles à la forge ;
+- signal de marché et sélection rapide des cours favorables ;
+- taupes mécaniques visibles dans la mine avec une frappe animée chaque seconde.
+
 ## Version 0.4.0
 
 - campagne étendue à six secteurs, dix minerais et onze pioches ;

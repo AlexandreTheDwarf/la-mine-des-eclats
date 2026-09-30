@@ -4,6 +4,7 @@ import {
   Check,
   ChevronRight,
   CircleDollarSign,
+  Clock3,
   Compass,
   Copy,
   Crosshair,
@@ -15,7 +16,9 @@ import {
   Hammer,
   HardHat,
   Lock,
+  ListChecks,
   Map,
+  Minus,
   Package,
   Pickaxe,
   Radio,
@@ -27,6 +30,8 @@ import {
   Sparkles,
   Target,
   Trophy,
+  TrendingDown,
+  TrendingUp,
   Truck,
   Volume2,
   VolumeX,
@@ -50,6 +55,7 @@ import {
   GOALS,
   LEGACIES,
   MACHINES,
+  MARKET_UNLOCK_DEPTH,
   ORES,
   ORE_ORDER,
   TOOLS,
@@ -68,10 +74,12 @@ import {
   loadGame,
   legacyCost,
   machineCost,
+  marketQuoteAt,
   expeditionReward,
   expeditionTarget,
   rockNameFor,
   saveGame,
+  selectedInventoryValue,
   upgradeCost,
   veinsPerMeterFor,
   zoneForDepth,
@@ -250,11 +258,56 @@ function TopBar({ state, onSound, onSettings }: { state: GameState; onSound: () 
   );
 }
 
-function InventoryPanel({ state, onSell }: { state: GameState; onSell: () => void }) {
+function InventoryPanel({
+  state,
+  onSellAll,
+  onSellSelected,
+}: {
+  state: GameState;
+  onSellAll: () => void;
+  onSellSelected: (ids: OreId[], rates: Partial<Record<OreId, number>>) => void;
+}) {
   const stats = getDerivedStats(state);
   const zone = zoneForDepth(state.maxDepth);
   const unlockedOreIndex = Math.min(ORE_ORDER.length - 1, 4 + zone.id);
+  const unlockedOreIds = ORE_ORDER.slice(0, unlockedOreIndex + 1);
+  const marketUnlocked = state.maxDepth >= MARKET_UNLOCK_DEPTH;
   const showSaleTutorial = state.salesCompleted === 0 && inventoryCount(state) > 0;
+  const [selectedOres, setSelectedOres] = useState<Set<OreId>>(() => new Set(ORE_ORDER));
+  const [marketNow, setMarketNow] = useState(() => Date.now());
+  const marketQuote = useMemo(() => marketQuoteAt(marketNow), [marketNow]);
+  const selectedIds = unlockedOreIds.filter((id) => selectedOres.has(id));
+  const selectedUnits = selectedIds.reduce((sum, id) => sum + state.inventory[id], 0);
+  const baseSelectedValue = selectedInventoryValue(state, selectedIds);
+  const selectedValue = marketUnlocked
+    ? selectedInventoryValue(state, selectedIds, marketQuote.rates)
+    : stats.inventoryValue;
+  const marketPremium = baseSelectedValue > 0 ? selectedValue / baseSelectedValue - 1 : 0;
+  const marketSignal = baseSelectedValue <= 0
+    ? (inventoryCount(state) > 0 ? "SÉLECTION VIDE" : "CHARGEMENT VIDE")
+    : marketPremium >= 0.12
+      ? "BON MOMENT"
+      : marketPremium <= -0.1
+        ? "COURS BAS"
+        : "MARCHÉ CALME";
+  const marketTone = marketPremium >= 0.12 ? "hot" : marketPremium <= -0.1 ? "low" : "steady";
+  const secondsRemaining = Math.max(1, Math.ceil((marketQuote.endsAt - marketNow) / 1_000));
+
+  useEffect(() => {
+    if (!marketUnlocked) return undefined;
+    setMarketNow(Date.now());
+    const timer = window.setInterval(() => setMarketNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [marketUnlocked]);
+
+  const toggleOre = (id: OreId) => {
+    setSelectedOres((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const crew = [
     { name: "Mica", role: "Repérage", unlocked: true },
@@ -275,17 +328,75 @@ function InventoryPanel({ state, onSell }: { state: GameState; onSell: () => voi
         <strong>{formatNumber(inventoryCount(state))}</strong>
       </div>
 
+      {marketUnlocked && (
+        <div className="market-console">
+          <div className="market-console__status">
+            <span>
+              <small>BOURSE DES FILONS</small>
+              <strong className={`market-signal market-signal--${marketTone}`}>{marketSignal}</strong>
+            </span>
+            <span className="market-clock"><Clock3 aria-hidden="true" />{secondsRemaining}s</span>
+          </div>
+          <div className="market-controls" aria-label="Sélection rapide des minerais">
+            <button type="button" onClick={() => setSelectedOres(new Set(unlockedOreIds))} title="Tout sélectionner">
+              <ListChecks aria-hidden="true" /> Tout
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedOres(new Set(unlockedOreIds.filter((id) => marketQuote.rates[id] >= 1.08)))}
+              title="Sélectionner les cours favorables"
+            >
+              <TrendingUp aria-hidden="true" /> En hausse
+            </button>
+            <button type="button" onClick={() => setSelectedOres(new Set())} title="Tout désélectionner">
+              <X aria-hidden="true" /> Rien
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="ore-list">
         {ORE_ORDER.map((id, index) => {
           const ore = ORES[id];
           const unlocked = index <= unlockedOreIndex;
-          return (
-            <div className={`ore-row${unlocked ? "" : " is-locked"}`} key={id}>
+          const selected = selectedOres.has(id);
+          const rate = marketQuote.rates[id];
+          const rateDelta = Math.round((rate - 1) * 100);
+          const trend = marketQuote.trends[id];
+          const TrendIcon = trend > 0 ? TrendingUp : trend < 0 ? TrendingDown : Minus;
+          const marketClass = rate >= 1.08 ? "is-up" : rate <= 0.92 ? "is-down" : "is-flat";
+          const unitValue = Math.round(ore.value * stats.saleMultiplier * (marketUnlocked ? rate : 1));
+          const contents = (
+            <>
+              {marketUnlocked && unlocked && <span className="ore-selector">{selected && <Check aria-hidden="true" />}</span>}
               <span className="ore-swatch" style={{ "--ore-color": ore.color, "--ore-glow": ore.glow } as CSSProperties} />
               <span className="ore-row__name">{unlocked ? ore.shortName : "Inconnu"}</span>
               <strong>{unlocked ? formatNumber(state.inventory[id]) : "?"}</strong>
-              <small>{unlocked ? `${formatNumber(Math.round(ore.value * stats.saleMultiplier))} p` : "—"}</small>
-            </div>
+              <span className="ore-row__price">
+                <small>{unlocked ? `${formatNumber(unitValue)} p` : "—"}</small>
+                {marketUnlocked && unlocked && (
+                  <em className={marketClass}>
+                    {rateDelta > 0 ? "+" : ""}{rateDelta}% <TrendIcon aria-hidden="true" />
+                  </em>
+                )}
+              </span>
+            </>
+          );
+
+          return marketUnlocked ? (
+            <button
+              className={`ore-row is-market${unlocked ? "" : " is-locked"}${selected && unlocked ? " is-selected" : ""}`}
+              type="button"
+              key={id}
+              disabled={!unlocked}
+              aria-pressed={selected && unlocked}
+              aria-label={`${selected ? "Retirer" : "Inclure"} ${ore.shortName} de la vente, cours ${rateDelta >= 0 ? "+" : ""}${rateDelta} %`}
+              onClick={() => toggleOre(id)}
+            >
+              {contents}
+            </button>
+          ) : (
+            <div className={`ore-row${unlocked ? "" : " is-locked"}`} key={id}>{contents}</div>
           );
         })}
       </div>
@@ -304,15 +415,20 @@ function InventoryPanel({ state, onSell }: { state: GameState; onSell: () => voi
             <span><Bot aria-hidden="true" /> Machines</span>
           </div>
           <p>Vends le chargement pour obtenir les pièces nécessaires aux machines et aux nouvelles pioches.</p>
-          <small>La vente vide tout le chargement : la forge demandera parfois de conserver certains minerais.</small>
+          <small>{marketUnlocked ? "Coche seulement ce que tu veux céder : les meilleurs cours méritent parfois quelques secondes d’attente." : "La vente sélective et les cours variables se débloquent à 25 mètres."}</small>
         </div>
       )}
 
-      <button className={`sell-button${showSaleTutorial ? " is-tutorial" : ""}`} type="button" onClick={onSell} disabled={stats.inventoryValue <= 0}>
+      <button
+        className={`sell-button${showSaleTutorial ? " is-tutorial" : ""}${marketUnlocked && marketTone === "hot" ? " is-market-hot" : ""}`}
+        type="button"
+        onClick={() => marketUnlocked ? onSellSelected(selectedIds, marketQuote.rates) : onSellAll()}
+        disabled={selectedValue <= 0}
+      >
         <ShoppingCart aria-hidden="true" />
         <span>
-          <strong>VENDRE LE CHARGEMENT</strong>
-          <small>{formatNumber(stats.inventoryValue)} pièces</small>
+          <strong>{marketUnlocked ? "VENDRE LA SÉLECTION" : "VENDRE LE CHARGEMENT"}</strong>
+          <small>{formatNumber(selectedValue)} pièces{marketUnlocked ? ` · ${formatNumber(selectedUnits)} unités` : ""}</small>
         </span>
       </button>
 
@@ -347,12 +463,14 @@ function InventoryPanel({ state, onSell }: { state: GameState; onSell: () => voi
 function MineStage({
   state,
   effects,
+  automationPulse,
   onStrike,
   onRepair,
   onSelectZone,
 }: {
   state: GameState;
   effects: HitEffect[];
+  automationPulse: number;
   onStrike: (event: MouseEvent<HTMLButtonElement>) => void;
   onRepair: () => void;
   onSelectZone: (id: number) => void;
@@ -374,6 +492,7 @@ function MineStage({
   const durability = (state.durability / stats.maxDurability) * 100;
   const canRepair = state.durability < stats.maxDurability && (state.shards >= stats.repairCost || state.durability <= 0);
   const backgroundUrl = `${import.meta.env.BASE_URL}${zone.image}`;
+  const visibleMoles = Math.min(3, Math.max(1, Math.ceil(state.machines.drill / 8)));
 
   return (
     <section
@@ -488,6 +607,21 @@ function MineStage({
           </span>
         </button>
       </div>
+
+      {state.machines.drill > 0 && (
+        <div className="mole-rig" aria-label={`${state.machines.drill} taupes mécaniques en activité`}>
+          <div className="mole-rig__swarm" key={automationPulse} aria-hidden="true">
+            {Array.from({ length: visibleMoles }, (_, index) => (
+              <span className="mole-unit" style={{ "--mole-index": index } as CSSProperties} key={index}>
+                <Bot className="mole-unit__body" />
+                <Pickaxe className="mole-unit__pick" />
+                <i />
+              </span>
+            ))}
+          </div>
+          <span className="mole-rig__readout"><strong>TAUPES ×{state.machines.drill}</strong><small>TIC AUTOMATIQUE</small></span>
+        </div>
+      )}
 
       {stats.autoDamage > 0 && (
         <div className="automation-badge">
@@ -879,7 +1013,7 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>LOCAL · VERSION 0.4.0</small><h2 id="settings-title">Sauvegarde</h2></div>
+          <div><small>LOCAL · VERSION 0.4.1</small><h2 id="settings-title">Sauvegarde</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
@@ -951,6 +1085,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [effects, setEffects] = useState<HitEffect[]>([]);
   const [notices, setNotices] = useState<GameNotice[]>([]);
+  const [automationPulse, setAutomationPulse] = useState(0);
   const pointerRef = useRef({ x: 50, y: 46 });
   const lastEffectId = useRef(state.impact.id);
   const previousMaxDepth = useRef(state.maxDepth);
@@ -975,7 +1110,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => dispatch({ type: "TICK", seconds: 1 }), 1_000);
+    const timer = window.setInterval(() => {
+      dispatch({ type: "TICK", seconds: 1 });
+      setAutomationPulse((pulse) => pulse + 1);
+    }, 1_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -1070,10 +1208,15 @@ export default function App() {
     <div className={`app-shell zone-${zone.id}`} style={style}>
       <TopBar state={state} onSound={() => dispatch({ type: "TOGGLE_SOUND" })} onSettings={() => setSettingsOpen(true)} />
       <main className="game-grid">
-        <InventoryPanel state={state} onSell={() => dispatch({ type: "SELL_ALL" })} />
+        <InventoryPanel
+          state={state}
+          onSellAll={() => dispatch({ type: "SELL_ALL" })}
+          onSellSelected={(ids, rates) => dispatch({ type: "SELL_SELECTED", ids, rates })}
+        />
         <MineStage
           state={state}
           effects={effects}
+          automationPulse={automationPulse}
           onStrike={handleStrike}
           onRepair={() => dispatch({ type: "REPAIR" })}
           onSelectZone={(id) => dispatch({ type: "SELECT_ZONE", id })}

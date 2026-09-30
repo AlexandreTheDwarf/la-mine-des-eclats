@@ -99,6 +99,13 @@ export interface JournalEntry {
   tone: "normal" | "good" | "rare";
 }
 
+export interface MarketQuote {
+  slot: number;
+  endsAt: number;
+  rates: Record<OreId, number>;
+  trends: Record<OreId, -1 | 0 | 1>;
+}
+
 export interface GameState {
   version: 5;
   shards: number;
@@ -139,6 +146,7 @@ export type GameAction =
   | { type: "SELECT_ZONE"; id: number }
   | { type: "REPAIR" }
   | { type: "SELL_ALL" }
+  | { type: "SELL_SELECTED"; ids: OreId[]; rates: Partial<Record<OreId, number>> }
   | { type: "BUY_UPGRADE"; id: UpgradeId }
   | { type: "BUY_MACHINE"; id: MachineId }
   | { type: "BUY_LEGACY"; id: LegacyId }
@@ -168,6 +176,35 @@ export const ORES: Record<OreId, OreDefinition> = {
 };
 
 export const ORE_ORDER: OreId[] = ["stone", "copper", "iron", "azurite", "gold", "ember", "star", "quartz", "glass", "dawn"];
+export const MARKET_UNLOCK_DEPTH = 25;
+export const MARKET_PERIOD_MS = 45_000;
+
+function marketRateForSlot(slot: number, oreIndex: number): number {
+  const raw = Math.sin((slot + 11) * 12.9898 + (oreIndex + 1) * 78.233) * 43_758.5453;
+  const unit = raw - Math.floor(raw);
+  return Math.round((0.72 + unit * 0.68) * 100) / 100;
+}
+
+export function marketQuoteAt(timestamp: number): MarketQuote {
+  const safeTimestamp = Math.max(0, Math.floor(timestamp));
+  const slot = Math.floor(safeTimestamp / MARKET_PERIOD_MS);
+  const rates = {} as Record<OreId, number>;
+  const trends = {} as Record<OreId, -1 | 0 | 1>;
+
+  ORE_ORDER.forEach((id, index) => {
+    const rate = marketRateForSlot(slot, index);
+    const previousRate = marketRateForSlot(slot - 1, index);
+    rates[id] = rate;
+    trends[id] = rate > previousRate + 0.03 ? 1 : rate < previousRate - 0.03 ? -1 : 0;
+  });
+
+  return {
+    slot,
+    endsAt: (slot + 1) * MARKET_PERIOD_MS,
+    rates,
+    trends,
+  };
+}
 
 export const ZONES: ZoneDefinition[] = [
   {
@@ -597,6 +634,22 @@ export function inventoryCount(state: GameState): number {
   return ORE_ORDER.reduce((sum, id) => sum + state.inventory[id], 0);
 }
 
+export function selectedInventoryValue(
+  state: GameState,
+  ids: OreId[],
+  rates: Partial<Record<OreId, number>> = {},
+): number {
+  const selected = new Set(ids);
+  const saleMultiplier = getDerivedStats(state).saleMultiplier;
+  const rawValue = ORE_ORDER.reduce((sum, id) => {
+    if (!selected.has(id)) return sum;
+    const candidateRate = Number(rates[id] ?? 1);
+    const marketRate = Number.isFinite(candidateRate) ? clamp(candidateRate, 0.72, 1.4) : 1;
+    return sum + state.inventory[id] * ORES[id].value * marketRate;
+  }, 0);
+  return Math.round(rawValue * saleMultiplier);
+}
+
 export function expectedOreYield(depth: number, yieldMultiplier: number): number {
   return (2 + depth / 22) * yieldMultiplier;
 }
@@ -826,6 +879,25 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         inventory: emptyInventory(),
         salesCompleted: state.salesCompleted + 1,
         message: `Vente terminée · ${formatNumber(value)} pièces ajoutées à l'atelier.`,
+      };
+    }
+    case "SELL_SELECTED": {
+      const selectedIds = ORE_ORDER.filter((id) => action.ids.includes(id));
+      const soldUnits = selectedIds.reduce((sum, id) => sum + state.inventory[id], 0);
+      const value = selectedInventoryValue(state, selectedIds, action.rates);
+      if (soldUnits <= 0 || value <= 0) return { ...state, message: "Aucun minerai sélectionné à vendre." };
+
+      const inventory = { ...state.inventory };
+      selectedIds.forEach((id) => {
+        inventory[id] = 0;
+      });
+
+      return {
+        ...state,
+        coins: state.coins + value,
+        inventory,
+        salesCompleted: state.salesCompleted + 1,
+        message: `Marché conclu · ${formatNumber(soldUnits)} minerais vendus pour ${formatNumber(value)} pièces.`,
       };
     }
     case "BUY_UPGRADE": {
