@@ -2,7 +2,7 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
-## Version 0.6.1 (branche de préparation)
+## Version 0.6.1 - Profondeur mobile
 
 - profondeur actuelle et prochaine balise toujours visibles sur téléphone ;
 - laboratoire d'échos débloqué à 80 mètres avec un codex des dix minerais ;
