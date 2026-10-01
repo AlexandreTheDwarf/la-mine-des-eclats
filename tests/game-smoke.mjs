@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
 import {
+  CONTRACT_OFFER_COUNT,
+  CONTRACT_UNLOCK_DEPTH,
   LEGACIES,
   MARKET_PERIOD_MS,
   ORE_ORDER,
   TOOLS,
   activeZoneForState,
   canStartExpedition,
+  contractRequirementsMet,
   createInitialState,
   decodeSave,
   expectedOreYield,
+  ensureContractOffers,
   expeditionReward,
   expeditionTarget,
   gameReducer,
@@ -16,6 +20,7 @@ import {
   inventoryCount,
   marketQuoteAt,
   rockMaxHpFor,
+  reputationRank,
   selectedInventoryValue,
   veinsPerMeterFor,
   zoneForDepth,
@@ -59,6 +64,34 @@ selectiveSaleState = gameReducer(selectiveSaleState, { type: "SELL_SELECTED", id
 assert.equal(selectiveSaleState.coins, selectiveValue, "selective sales should use the displayed market rate");
 assert.equal(selectiveSaleState.inventory.stone, 0, "a selected ore should be sold");
 assert.equal(selectiveSaleState.inventory.copper, 5, "an unselected ore should remain in the cargo");
+assert.equal(selectiveSaleState.tradeHistory[0].kind, "market", "market sales should enter the trade ledger");
+
+const contractNow = Date.now();
+let contractState = {
+  ...createInitialState(),
+  depth: CONTRACT_UNLOCK_DEPTH,
+  maxDepth: CONTRACT_UNLOCK_DEPTH,
+};
+contractState = ensureContractOffers(contractState, contractNow);
+assert.equal(contractState.contractOffers.length, CONTRACT_OFFER_COUNT, "the Company should broadcast three offers");
+assert.equal(reputationRank(0), "Prospecteur indépendant");
+assert.equal(reputationRank(20), "Négociant de faille");
+
+const firstContract = contractState.contractOffers[0];
+const stockedInventory = { ...contractState.inventory };
+Object.entries(firstContract.requirements).forEach(([id, amount]) => {
+  stockedInventory[id] = amount;
+});
+contractState = { ...contractState, inventory: stockedInventory };
+assert.ok(contractRequirementsMet(contractState, firstContract), "a fully stocked order should be deliverable");
+contractState = gameReducer(contractState, { type: "FULFILL_CONTRACT", id: firstContract.id });
+assert.equal(contractState.completedContracts, 1, "fulfilling an order should increment the contract record");
+assert.equal(contractState.reputation, firstContract.rewardReputation, "fulfilling an order should grant reputation");
+assert.equal(contractState.coins, firstContract.rewardCoins, "fulfilling an order should grant its advertised payment");
+assert.equal(contractState.tradeHistory[0].kind, "contract", "contract deliveries should enter the trade ledger");
+assert.ok(!contractState.contractOffers.some((offer) => offer.id === firstContract.id), "a delivered contract should leave the board");
+contractState = ensureContractOffers(contractState, contractNow + 1_000);
+assert.equal(contractState.contractOffers.length, CONTRACT_OFFER_COUNT, "a delivered contract should be replaced");
 
 assert.equal(
   expectedOreYield(22, 2),
@@ -131,6 +164,9 @@ let cappedState = {
   rockHp: 1,
   rockMaxHp: rockMaxHpFor(120),
   durability: 100,
+  reputation: 17,
+  completedContracts: 4,
+  tradeHistory: [{ id: 1, kind: "contract", label: "Comptoir test", units: 12, coins: 400, timestamp: 1 }],
 };
 cappedState = gameReducer(cappedState, { type: "STRIKE" });
 assert.equal(cappedState.depth, 120, "the first expedition should stop at its 120 metre beacon");
@@ -151,6 +187,9 @@ assert.equal(cycledState.expeditions, 1, "a new expedition should increment the 
 assert.equal(cycledState.echoes, expectedEchoes, "a new expedition should award permanent echoes");
 assert.equal(cycledState.rocksBroken, lifetimeRocks, "lifetime statistics should survive a new cycle");
 assert.equal(inventoryCount(cycledState), 0, "a new cycle should reset the cargo");
+assert.equal(cycledState.reputation, 17, "Company reputation should survive a new cycle");
+assert.equal(cycledState.completedContracts, 4, "fulfilled contracts should survive a new cycle");
+assert.equal(cycledState.tradeHistory.length, 1, "the trade ledger should survive a new cycle");
 
 const legacyDamage = getDerivedStats(cycledState).clickDamage;
 cycledState = { ...cycledState, echoes: 100 };
@@ -159,8 +198,8 @@ assert.ok(getDerivedStats(cycledState).clickDamage > legacyDamage, "a permanent 
 
 const oldSave = Buffer.from(JSON.stringify({ version: 4, depth: 60, selectedZoneId: 2, rockHp: 10, rockMaxHp: 10 }), "utf8").toString("base64");
 const migratedSave = decodeSave(oldSave);
-assert.equal(migratedSave.version, 5, "old saves should migrate to the extended campaign");
+assert.equal(migratedSave.version, 6, "old saves should migrate to the Company campaign");
 assert.equal(migratedSave.maxDepth, 60, "old saves should preserve their depth as a permanent record");
 assert.equal(migratedSave.inventory.dawn, 0, "old saves should receive the new ore slots");
 
-console.log("OK: mining, selective market sales, galleries, legacies and expedition cycles.");
+console.log("OK: mining, market sales, Company contracts, galleries, legacies and expedition cycles.");

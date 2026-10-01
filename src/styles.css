@@ -1342,7 +1342,7 @@ button.ore-row {
   top: 0;
   z-index: 4;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   min-height: 62px;
   border-bottom: 1px solid var(--line);
   background: #061217;
@@ -1400,6 +1400,13 @@ button.ore-row {
   font-size: 0.58rem;
   line-height: 1;
   box-shadow: 0 0 12px rgba(255, 189, 89, 0.26);
+}
+
+.panel-tabs .tab-badge--contract {
+  border-color: #b7f4d5;
+  background: #277653;
+  color: #edfff6;
+  box-shadow: 0 0 12px rgba(101, 214, 161, 0.26);
 }
 
 .command-panel__body {
@@ -1828,6 +1835,341 @@ button.ore-row {
   border-color: rgba(145, 174, 178, 0.1);
   background: transparent;
   color: var(--muted-2);
+}
+
+.contract-lock {
+  display: grid;
+  min-height: 310px;
+  padding: 28px 16px;
+  border: 1px solid rgba(126, 240, 233, 0.14);
+  place-items: center;
+  align-content: center;
+  background:
+    linear-gradient(rgba(98, 238, 227, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(98, 238, 227, 0.025) 1px, transparent 1px);
+  background-size: 18px 18px;
+  text-align: center;
+}
+
+.contract-lock > svg {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 10px;
+  color: var(--cyan);
+}
+
+.contract-lock > small,
+.company-summary small,
+.contract-card header small {
+  color: var(--muted);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.58rem;
+  font-weight: 800;
+}
+
+.contract-lock h3 {
+  margin: 5px 0 18px;
+  font-size: 0.94rem;
+}
+
+.contract-lock .progress {
+  width: min(240px, 100%);
+}
+
+.contract-lock > strong {
+  margin-top: 7px;
+  color: var(--cyan-soft);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.65rem;
+}
+
+.contract-panel {
+  display: grid;
+  gap: 13px;
+}
+
+.company-summary {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 11px;
+  border-top: 1px solid rgba(255, 189, 89, 0.28);
+  border-bottom: 1px solid rgba(255, 189, 89, 0.28);
+  background: rgba(255, 189, 89, 0.045);
+}
+
+.company-summary > span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255, 189, 89, 0.3);
+  border-radius: 5px;
+  place-items: center;
+  color: var(--amber);
+}
+
+.company-summary > span svg {
+  width: 21px;
+}
+
+.company-summary h3 {
+  margin: 3px 0 0;
+  font-size: 0.85rem;
+}
+
+.company-summary > strong {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #ffe2a8;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.8rem;
+}
+
+.company-summary > strong svg {
+  width: 14px;
+}
+
+.company-summary .progress,
+.company-summary > small {
+  grid-column: 1 / -1;
+}
+
+.company-summary > small {
+  margin-top: -3px;
+  text-align: right;
+}
+
+.contract-list {
+  display: grid;
+  gap: 8px;
+}
+
+.contract-search {
+  display: flex;
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed rgba(126, 240, 233, 0.2);
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.contract-search svg {
+  width: 17px;
+  animation: contract-search-spin 1.2s linear infinite;
+}
+
+.contract-card {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid rgba(126, 240, 233, 0.15);
+  border-radius: 6px;
+  background: rgba(13, 34, 40, 0.68);
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.contract-card.is-ready {
+  border-color: rgba(101, 214, 161, 0.5);
+  background: rgba(20, 62, 51, 0.42);
+}
+
+.contract-card.is-urgent:not(.is-ready) {
+  border-color: rgba(255, 109, 85, 0.42);
+}
+
+.contract-card header,
+.contract-card footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.contract-card header > span {
+  display: grid;
+  min-width: 0;
+}
+
+.contract-card header strong {
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contract-card header b {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  color: var(--cyan-soft);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.66rem;
+}
+
+.contract-card.is-urgent header b {
+  color: #ff9b89;
+}
+
+.contract-card header b svg {
+  width: 13px;
+}
+
+.contract-materials {
+  display: grid;
+  gap: 3px;
+}
+
+.contract-materials > div {
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 6px;
+  border-left: 2px solid var(--coral);
+  background: rgba(255, 109, 85, 0.04);
+  color: #bdcdcf;
+  font-size: 0.65rem;
+}
+
+.contract-materials > div.is-ready {
+  border-left-color: var(--green);
+  background: rgba(101, 214, 161, 0.05);
+}
+
+.contract-materials strong {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.62rem;
+}
+
+.contract-card .progress {
+  height: 5px;
+}
+
+.contract-card footer > span {
+  display: grid;
+  grid-template-columns: 15px auto;
+  align-items: center;
+  gap: 0 4px;
+  color: #ffe2a8;
+}
+
+.contract-card footer > span svg {
+  width: 14px;
+  grid-row: 1 / 3;
+}
+
+.contract-card footer > span strong {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.76rem;
+}
+
+.contract-card footer > span small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 0.54rem;
+}
+
+.contract-card footer button {
+  display: flex;
+  min-width: 84px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(101, 214, 161, 0.42);
+  border-radius: 4px;
+  background: rgba(101, 214, 161, 0.1);
+  color: #bdf6d8;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.62rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.contract-card footer button:hover:not(:disabled) {
+  border-color: var(--green);
+  background: rgba(101, 214, 161, 0.18);
+}
+
+.contract-card footer button:disabled {
+  border-color: rgba(145, 174, 178, 0.12);
+  background: rgba(93, 111, 114, 0.05);
+  color: var(--muted-2);
+  cursor: not-allowed;
+}
+
+.contract-card footer button svg {
+  width: 15px;
+}
+
+.trade-history {
+  padding-top: 3px;
+}
+
+.trade-history .legacy-heading {
+  margin-bottom: 5px;
+}
+
+.trade-history .legacy-heading svg {
+  width: 15px;
+  color: var(--muted);
+}
+
+.trade-history > p {
+  margin: 8px 0;
+  color: var(--muted-2);
+  font-size: 0.64rem;
+  text-align: center;
+}
+
+.trade-history > div:not(.legacy-heading) {
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 5px 3px;
+  border-bottom: 1px solid rgba(126, 240, 233, 0.08);
+}
+
+.trade-history > div > span:first-child {
+  display: grid;
+  color: var(--cyan);
+  place-items: center;
+}
+
+.trade-history > div > span:first-child svg {
+  width: 15px;
+}
+
+.trade-history > div > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+}
+
+.trade-history > div strong {
+  overflow: hidden;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trade-history > div small {
+  margin-top: 2px;
+  color: var(--muted-2);
+  font-size: 0.54rem;
+}
+
+.trade-history > div b {
+  color: #ffe2a8;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.65rem;
 }
 
 .expedition-panel {
@@ -2431,6 +2773,10 @@ button.ore-row {
   0%, 35% { opacity: 0; transform: scale(0.2); }
   48% { opacity: 1; transform: scale(1.5); }
   100% { opacity: 0; transform: translate(5px, -5px) scale(0.4); }
+}
+
+@keyframes contract-search-spin {
+  to { transform: rotate(360deg); }
 }
 
 @keyframes notice-arrive {

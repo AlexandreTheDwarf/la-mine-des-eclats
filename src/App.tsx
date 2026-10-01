@@ -5,6 +5,7 @@ import {
   ChevronRight,
   CircleDollarSign,
   Clock3,
+  ClipboardList,
   Compass,
   Copy,
   Crosshair,
@@ -15,6 +16,8 @@ import {
   Gem,
   Hammer,
   HardHat,
+  Handshake,
+  History,
   Lock,
   ListChecks,
   Map,
@@ -28,6 +31,7 @@ import {
   Shield,
   ShoppingCart,
   Sparkles,
+  Star,
   Target,
   Trophy,
   TrendingDown,
@@ -53,6 +57,7 @@ import {
 } from "react";
 import {
   GOALS,
+  CONTRACT_UNLOCK_DEPTH,
   LEGACIES,
   MACHINES,
   MARKET_UNLOCK_DEPTH,
@@ -64,6 +69,7 @@ import {
   activeZoneForState,
   canStartExpedition,
   canForgeNext,
+  contractRequirementsMet,
   decodeSave,
   encodeSave,
   formatDuration,
@@ -78,6 +84,7 @@ import {
   expeditionReward,
   expeditionTarget,
   rockNameFor,
+  reputationRank,
   saveGame,
   selectedInventoryValue,
   upgradeCost,
@@ -90,7 +97,7 @@ import {
   type UpgradeId,
 } from "./game";
 
-type PanelTab = "upgrades" | "machines" | "forge" | "goals" | "expedition";
+type PanelTab = "upgrades" | "machines" | "forge" | "contracts" | "goals" | "expedition";
 
 interface HitEffect {
   id: number;
@@ -103,7 +110,7 @@ interface HitEffect {
 
 interface GameNotice {
   id: string;
-  kind: "unlock" | "goal";
+  kind: "unlock" | "goal" | "contract";
   name: string;
   detail: string;
   machineId?: MachineId;
@@ -136,6 +143,7 @@ const tabDefinitions: Array<{ id: PanelTab; label: string; icon: LucideIcon }> =
   { id: "upgrades", label: "Améliorer", icon: Zap },
   { id: "machines", label: "Machines", icon: Bot },
   { id: "forge", label: "Forge", icon: Hammer },
+  { id: "contracts", label: "Contrats", icon: ClipboardList },
   { id: "goals", label: "Objectifs", icon: Trophy },
   { id: "expedition", label: "Cycles", icon: Compass },
 ];
@@ -154,17 +162,19 @@ function NoticeStack({
   return (
     <div className="notice-stack" aria-live="polite" aria-label="Nouveautés de la mine">
       {notices.slice(0, 2).map((notice) => {
-        const Icon = notice.machineId ? machineIcons[notice.machineId] : Trophy;
+        const Icon = notice.kind === "contract" ? Handshake : notice.machineId ? machineIcons[notice.machineId] : Trophy;
+        const eyebrow = notice.kind === "unlock" ? "NOUVEAU PLAN DÉBLOQUÉ" : notice.kind === "contract" ? "NOUVEAU RÉSEAU" : "OBJECTIF ATTEINT";
+        const actionLabel = notice.kind === "unlock" ? "ATELIER" : notice.kind === "contract" ? "CONTRATS" : "OBJECTIFS";
         return (
           <article className={`game-notice game-notice--${notice.kind}`} key={notice.id}>
             <span className="game-notice__icon"><Icon aria-hidden="true" /></span>
             <div className="game-notice__copy">
-              <small>{notice.kind === "unlock" ? "NOUVEAU PLAN DÉBLOQUÉ" : "OBJECTIF ATTEINT"}</small>
+              <small>{eyebrow}</small>
               <strong>{notice.name}</strong>
               <p>{notice.detail}</p>
             </div>
             <button className="game-notice__action" type="button" onClick={() => onOpen(notice)}>
-              {notice.kind === "unlock" ? "ATELIER" : "OBJECTIFS"}<ChevronRight aria-hidden="true" />
+              {actionLabel}<ChevronRight aria-hidden="true" />
             </button>
             <button className="game-notice__close" type="button" aria-label={`Fermer la notification ${notice.name}`} onClick={() => onDismiss(notice.id)}>
               <X aria-hidden="true" />
@@ -797,6 +807,107 @@ function GoalsPanel({ state, dispatch }: { state: GameState; dispatch: React.Dis
   );
 }
 
+function ContractPanel({ state, dispatch }: { state: GameState; dispatch: React.Dispatch<Parameters<typeof gameReducer>[1]> }) {
+  if (state.maxDepth < CONTRACT_UNLOCK_DEPTH) {
+    return (
+      <div className="contract-lock">
+        <Handshake aria-hidden="true" />
+        <small>LIGNE COMMERCIALE FERMÉE</small>
+        <h3>La Compagnie écoute plus bas.</h3>
+        <ProgressBar value={(state.maxDepth / CONTRACT_UNLOCK_DEPTH) * 100} label="Déblocage des contrats" />
+        <strong>{formatNumber(state.maxDepth)} / {CONTRACT_UNLOCK_DEPTH} m</strong>
+      </div>
+    );
+  }
+
+  const now = Date.now();
+  const rankSteps = [
+    { value: 0, label: "Prospecteur indépendant" },
+    { value: 8, label: "Fournisseur agréé" },
+    { value: 20, label: "Négociant de faille" },
+    { value: 45, label: "Intendant du noyau" },
+    { value: 80, label: "Maison de confiance" },
+  ];
+  const currentRankIndex = [...rankSteps].reverse().findIndex((step) => state.reputation >= step.value);
+  const normalizedRankIndex = currentRankIndex < 0 ? 0 : rankSteps.length - 1 - currentRankIndex;
+  const currentRank = rankSteps[normalizedRankIndex];
+  const nextRank = rankSteps[normalizedRankIndex + 1];
+  const rankProgress = nextRank
+    ? ((state.reputation - currentRank.value) / (nextRank.value - currentRank.value)) * 100
+    : 100;
+
+  return (
+    <div className="contract-panel">
+      <section className="company-summary">
+        <span><Handshake aria-hidden="true" /></span>
+        <div>
+          <small>RÉPUTATION DE LA COMPAGNIE</small>
+          <h3>{reputationRank(state.reputation)}</h3>
+        </div>
+        <strong><Star aria-hidden="true" />{formatNumber(state.reputation)}</strong>
+        <ProgressBar value={rankProgress} label="Progression de réputation" tone="amber" />
+        <small>{nextRank ? `${nextRank.label} à ${nextRank.value} points` : `${state.completedContracts} contrats honorés`}</small>
+      </section>
+
+      <div className="contract-list">
+        {state.contractOffers.length === 0 && (
+          <div className="contract-search"><RefreshCw aria-hidden="true" /><span>Recherche de convois en cours...</span></div>
+        )}
+        {state.contractOffers.map((offer) => {
+          const remainingMs = Math.max(0, offer.expiresAt - now);
+          const remainingSeconds = Math.ceil(remainingMs / 1_000);
+          const minutes = Math.floor(remainingSeconds / 60);
+          const seconds = String(remainingSeconds % 60).padStart(2, "0");
+          const ready = contractRequirementsMet(state, offer);
+          const requirements = Object.entries(offer.requirements) as Array<[OreId, number]>;
+          const fulfillment = requirements.reduce(
+            (sum, [id, amount]) => sum + Math.min(1, state.inventory[id] / amount),
+            0,
+          ) / Math.max(1, requirements.length) * 100;
+
+          return (
+            <article className={`contract-card${ready ? " is-ready" : ""}${remainingSeconds <= 60 ? " is-urgent" : ""}`} key={offer.id}>
+              <header>
+                <span><small>{offer.buyer}</small><strong>{offer.title}</strong></span>
+                <b><Clock3 aria-hidden="true" />{minutes}:{seconds}</b>
+              </header>
+              <div className="contract-materials">
+                {requirements.map(([id, amount]) => (
+                  <div className={state.inventory[id] >= amount ? "is-ready" : ""} key={id}>
+                    <span className="ore-swatch" style={{ "--ore-color": ORES[id].color, "--ore-glow": ORES[id].glow } as CSSProperties} />
+                    <span>{ORES[id].shortName}</span>
+                    <strong>{formatNumber(state.inventory[id])} / {formatNumber(amount)}</strong>
+                  </div>
+                ))}
+              </div>
+              <ProgressBar value={fulfillment} label={`Préparation pour ${offer.buyer}`} tone={ready ? "amber" : "cyan"} />
+              <footer>
+                <span><CircleDollarSign aria-hidden="true" /><strong>{formatNumber(offer.rewardCoins)}</strong><small>+{offer.rewardReputation} réputation</small></span>
+                <button type="button" disabled={!ready || remainingMs <= 0} onClick={() => dispatch({ type: "FULFILL_CONTRACT", id: offer.id })}>
+                  <Truck aria-hidden="true" /> LIVRER
+                </button>
+              </footer>
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="trade-history">
+        <div className="legacy-heading"><span>DERNIÈRES TRANSACTIONS</span><History aria-hidden="true" /></div>
+        {state.tradeHistory.length === 0 ? (
+          <p>Aucun registre commercial.</p>
+        ) : state.tradeHistory.slice(0, 5).map((entry) => (
+          <div key={entry.id}>
+            <span>{entry.kind === "contract" ? <Handshake aria-hidden="true" /> : <ShoppingCart aria-hidden="true" />}</span>
+            <span><strong>{entry.label}</strong><small>{new Date(entry.timestamp).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · {formatNumber(entry.units)} unités</small></span>
+            <b>+{formatNumber(entry.coins)}</b>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ExpeditionPanel({ state, dispatch }: { state: GameState; dispatch: React.Dispatch<Parameters<typeof gameReducer>[1]> }) {
   const [launchArmed, setLaunchArmed] = useState(false);
   const target = expeditionTarget(state.expeditions);
@@ -883,6 +994,7 @@ function CommandPanel({
   onTab: (tab: PanelTab) => void;
 }) {
   const readyGoals = GOALS.filter((goal) => goal.progress(state) >= goal.target && !state.claimedGoals.includes(goal.id)).length;
+  const readyContracts = state.contractOffers.filter((offer) => offer.expiresAt > Date.now() && contractRequirementsMet(state, offer)).length;
   return (
     <aside className="command-panel">
       <nav className="panel-tabs" aria-label="Atelier">
@@ -899,6 +1011,7 @@ function CommandPanel({
               <Icon aria-hidden="true" />
               <span>{tab.label}</span>
               {tab.id === "goals" && readyGoals > 0 && <b className="tab-badge" aria-label={`${readyGoals} objectif${readyGoals > 1 ? "s" : ""} à récupérer`}>{readyGoals}</b>}
+              {tab.id === "contracts" && readyContracts > 0 && <b className="tab-badge tab-badge--contract" aria-label={`${readyContracts} contrat${readyContracts > 1 ? "s" : ""} prêt${readyContracts > 1 ? "s" : ""}`}>{readyContracts}</b>}
             </button>
           );
         })}
@@ -906,14 +1019,15 @@ function CommandPanel({
       <div className="command-panel__body">
         <div className="panel-heading panel-heading--command">
           <div>
-            <span>ATELIER MOBILE</span>
+            <span>{activeTab === "contracts" ? "COMPAGNIE MINIÈRE" : "ATELIER MOBILE"}</span>
             <h2>{tabDefinitions.find((tab) => tab.id === activeTab)?.label}</h2>
           </div>
-          <HardHat aria-hidden="true" />
+          {activeTab === "contracts" ? <Handshake aria-hidden="true" /> : <HardHat aria-hidden="true" />}
         </div>
         {activeTab === "upgrades" && <UpgradeList state={state} dispatch={dispatch} />}
         {activeTab === "machines" && <MachineList state={state} dispatch={dispatch} />}
         {activeTab === "forge" && <ForgePanel state={state} dispatch={dispatch} />}
+        {activeTab === "contracts" && <ContractPanel state={state} dispatch={dispatch} />}
         {activeTab === "goals" && <GoalsPanel state={state} dispatch={dispatch} />}
         {activeTab === "expedition" && <ExpeditionPanel state={state} dispatch={dispatch} />}
       </div>
@@ -1013,7 +1127,7 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>LOCAL · VERSION 0.4.1</small><h2 id="settings-title">Sauvegarde</h2></div>
+          <div><small>BRANCHE TEST · VERSION 0.5.0</small><h2 id="settings-title">Sauvegarde</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
@@ -1138,6 +1252,14 @@ export default function App() {
         detail: `${machine.description}. Disponible dans l’onglet Machines.`,
         machineId: machine.id,
       }));
+    if (oldMaxDepth < CONTRACT_UNLOCK_DEPTH && state.maxDepth >= CONTRACT_UNLOCK_DEPTH) {
+      unlocked.push({
+        id: `unlock-contracts-${state.maxDepth}`,
+        kind: "contract",
+        name: "La Compagnie minière",
+        detail: "Trois convois transmettent désormais leurs commandes et leurs échéances.",
+      });
+    }
     previousMaxDepth.current = state.maxDepth;
     queueNotices(unlocked);
   }, [queueNotices, state.maxDepth]);
@@ -1197,7 +1319,7 @@ export default function App() {
   };
 
   const openNotice = (notice: GameNotice) => {
-    setActiveTab(notice.kind === "unlock" ? "machines" : "goals");
+    setActiveTab(notice.kind === "unlock" ? "machines" : notice.kind === "contract" ? "contracts" : "goals");
     setNotices((current) => current.filter((item) => item.id !== notice.id));
     window.setTimeout(() => document.querySelector(".command-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };

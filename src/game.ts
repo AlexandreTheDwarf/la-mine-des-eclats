@@ -106,8 +106,27 @@ export interface MarketQuote {
   trends: Record<OreId, -1 | 0 | 1>;
 }
 
+export interface ContractOffer {
+  id: string;
+  buyer: string;
+  title: string;
+  requirements: Partial<Record<OreId, number>>;
+  rewardCoins: number;
+  rewardReputation: number;
+  expiresAt: number;
+}
+
+export interface TradeRecord {
+  id: number;
+  kind: "market" | "contract";
+  label: string;
+  units: number;
+  coins: number;
+  timestamp: number;
+}
+
 export interface GameState {
-  version: 5;
+  version: 6;
   shards: number;
   coins: number;
   echoes: number;
@@ -129,6 +148,10 @@ export interface GameState {
   machines: Record<MachineId, number>;
   legacy: Record<LegacyId, number>;
   salesCompleted: number;
+  reputation: number;
+  completedContracts: number;
+  contractOffers: ContractOffer[];
+  tradeHistory: TradeRecord[];
   claimedGoals: string[];
   journal: JournalEntry[];
   activeEvent: MineEvent | null;
@@ -147,6 +170,7 @@ export type GameAction =
   | { type: "REPAIR" }
   | { type: "SELL_ALL" }
   | { type: "SELL_SELECTED"; ids: OreId[]; rates: Partial<Record<OreId, number>> }
+  | { type: "FULFILL_CONTRACT"; id: string }
   | { type: "BUY_UPGRADE"; id: UpgradeId }
   | { type: "BUY_MACHINE"; id: MachineId }
   | { type: "BUY_LEGACY"; id: LegacyId }
@@ -178,6 +202,8 @@ export const ORES: Record<OreId, OreDefinition> = {
 export const ORE_ORDER: OreId[] = ["stone", "copper", "iron", "azurite", "gold", "ember", "star", "quartz", "glass", "dawn"];
 export const MARKET_UNLOCK_DEPTH = 25;
 export const MARKET_PERIOD_MS = 45_000;
+export const CONTRACT_UNLOCK_DEPTH = 40;
+export const CONTRACT_OFFER_COUNT = 3;
 
 function marketRateForSlot(slot: number, oreIndex: number): number {
   const raw = Math.sin((slot + 11) * 12.9898 + (oreIndex + 1) * 78.233) * 43_758.5453;
@@ -362,12 +388,15 @@ export const GOALS: GoalDefinition[] = [
   { id: "prospector", name: "Les poches pleines", description: "Extraire 40 minerais", target: 40, progress: (s) => s.totalMined, reward: { coins: 120 } },
   { id: "machines", name: "Jamais seul", description: "Installer 3 machines", target: 3, progress: (s) => machineCount(s), reward: { drill: 1 } },
   { id: "ember", name: "Ça chauffe", description: "Atteindre 25 mètres", target: 25, progress: (s) => s.maxDepth, reward: { shards: 220 } },
+  { id: "first-contract", name: "Poignée de main", description: "Honorer un contrat", target: 1, progress: (s) => s.completedContracts, reward: { coins: 1_500 } },
   { id: "core", name: "Sous le monde", description: "Atteindre 60 mètres", target: 60, progress: (s) => s.maxDepth, reward: { shards: 1_000, coins: 2_500 } },
+  { id: "contractor", name: "Carnet de commandes", description: "Honorer 5 contrats", target: 5, progress: (s) => s.completedContracts, reward: { coins: 18_000 } },
   { id: "industry", name: "Petit empire", description: "Briser 150 filons", target: 150, progress: (s) => s.rocksBroken, reward: { coins: 8_000 } },
   { id: "cathedral", name: "La quatrième porte", description: "Atteindre 120 mètres", target: 120, progress: (s) => s.maxDepth, reward: { echoes: 1, coins: 25_000 } },
   { id: "first-cycle", name: "Revenir autrement", description: "Lancer une expédition", target: 1, progress: (s) => s.expeditions, reward: { echoes: 3 } },
   { id: "deep-industry", name: "Quart de nuit", description: "Briser 500 filons", target: 500, progress: (s) => s.rocksBroken, reward: { coins: 180_000 } },
   { id: "glass-sea", name: "Marcher sur le vide", description: "Atteindre 220 mètres", target: 220, progress: (s) => s.maxDepth, reward: { shards: 8_000, coins: 500_000 } },
+  { id: "trusted-name", name: "Nom qui circule", description: "Honorer 15 contrats", target: 15, progress: (s) => s.completedContracts, reward: { echoes: 4, coins: 750_000 } },
   { id: "second-cycle", name: "La mine se souvient", description: "Lancer deux expéditions", target: 2, progress: (s) => s.expeditions, reward: { echoes: 6 } },
   { id: "dawn", name: "Avant le matin", description: "Atteindre 360 mètres", target: 360, progress: (s) => s.maxDepth, reward: { shards: 25_000, coins: 8_000_000 } },
   { id: "third-cycle", name: "Plus bas que la fin", description: "Lancer trois expéditions", target: 3, progress: (s) => s.expeditions, reward: { echoes: 10 } },
@@ -448,7 +477,7 @@ export function rockNameFor(state: GameState): string {
 export function createInitialState(): GameState {
   const rockMaxHp = rockMaxHpFor(1);
   return {
-    version: 5,
+    version: 6,
     shards: 0,
     coins: 0,
     echoes: 0,
@@ -470,6 +499,10 @@ export function createInitialState(): GameState {
     machines: emptyMachines(),
     legacy: emptyLegacy(),
     salesCompleted: 0,
+    reputation: 0,
+    completedContracts: 0,
+    contractOffers: [],
+    tradeHistory: [],
     claimedGoals: [],
     journal: [{ id: 1, text: "La première galerie attend. Trois silhouettes observent depuis les poutres.", tone: "normal" }],
     activeEvent: null,
@@ -497,7 +530,7 @@ function normalizeState(candidate: Partial<GameState>): GameState {
   const merged: GameState = {
     ...base,
     ...candidate,
-    version: 5,
+    version: 6,
     toolTier,
     inventory: { ...base.inventory, ...(candidate.inventory ?? {}) },
     upgrades: candidateUpgrades,
@@ -506,6 +539,10 @@ function normalizeState(candidate: Partial<GameState>): GameState {
     echoes: Math.max(0, Math.floor(Number(candidate.echoes) || 0)),
     expeditions: Math.max(0, Math.floor(Number(candidate.expeditions) || 0)),
     salesCompleted: Math.max(0, Math.floor(candidate.salesCompleted ?? (inferredPreviousSale ? 1 : 0))),
+    reputation: Math.max(0, Math.floor(Number(candidate.reputation) || 0)),
+    completedContracts: Math.max(0, Math.floor(Number(candidate.completedContracts) || 0)),
+    contractOffers: Array.isArray(candidate.contractOffers) ? candidate.contractOffers.slice(0, CONTRACT_OFFER_COUNT) : [],
+    tradeHistory: Array.isArray(candidate.tradeHistory) ? candidate.tradeHistory.slice(0, 12) : [],
     claimedGoals: Array.isArray(candidate.claimedGoals) ? candidate.claimedGoals : [],
     journal: Array.isArray(candidate.journal) && candidate.journal.length ? candidate.journal.slice(0, 12) : base.journal,
     activeEvent: null,
@@ -648,6 +685,98 @@ export function selectedInventoryValue(
     return sum + state.inventory[id] * ORES[id].value * marketRate;
   }, 0);
   return Math.round(rawValue * saleMultiplier);
+}
+
+const CONTRACT_BUYERS = [
+  "Maison Ferrance",
+  "Atelier des Brumes",
+  "Comptoir Héliarque",
+  "Ligue des Verriers",
+  "Convoi Sainte-Braise",
+  "Archives du Quartz",
+];
+
+const CONTRACT_TITLES = [
+  "Approvisionnement urgent",
+  "Commande d'atelier",
+  "Cargaison sous scellés",
+  "Lot de recherche",
+  "Réserve de chantier",
+  "Livraison confidentielle",
+];
+
+function contractUnit(seed: number): number {
+  const raw = Math.sin(seed * 12.9898 + 41.153) * 43_758.5453;
+  return raw - Math.floor(raw);
+}
+
+function createContractOffer(state: GameState, now: number, index: number): ContractOffer {
+  const difficulty = index % CONTRACT_OFFER_COUNT;
+  const seed = Math.floor(now / 1_000) + state.completedContracts * 131 + index * 977 + state.expeditions * 59;
+  const activeZone = zoneForDepth(state.depth);
+  const accessibleOres = ORE_ORDER.slice(0, Math.min(ORE_ORDER.length, 5 + activeZone.id));
+  const commonLimit = Math.max(2, Math.ceil(accessibleOres.length * 0.65));
+  const primaryPool = difficulty === 0 ? accessibleOres.slice(0, commonLimit) : accessibleOres;
+  const primaryIndex = Math.min(primaryPool.length - 1, Math.floor(contractUnit(seed + 1) * primaryPool.length));
+  const primary = primaryPool[primaryIndex];
+  const requirements: Partial<Record<OreId, number>> = {};
+  const baseUnits = (16 + Math.sqrt(Math.max(1, state.depth)) * 3) * (1 + difficulty * 0.52);
+  const primaryShare = difficulty === 0 ? 1 : 0.68;
+  requirements[primary] = clamp(Math.round((baseUnits * primaryShare) / Math.pow(ORES[primary].value, 0.42)), 1, 2_500);
+
+  if (difficulty > 0 && accessibleOres.length > 1) {
+    let secondaryIndex = Math.floor(contractUnit(seed + 2) * accessibleOres.length);
+    if (accessibleOres[secondaryIndex] === primary) secondaryIndex = (secondaryIndex + 1) % accessibleOres.length;
+    const secondary = accessibleOres[secondaryIndex];
+    requirements[secondary] = clamp(Math.round((baseUnits * 0.48) / Math.pow(ORES[secondary].value, 0.42)), 1, 2_500);
+  }
+
+  const rawValue = Object.entries(requirements).reduce(
+    (sum, [id, amount]) => sum + ORES[id as OreId].value * (amount ?? 0),
+    0,
+  );
+  const reputationPremium = Math.min(0.2, state.reputation * 0.004);
+  const premium = 1.35 + difficulty * 0.2 + reputationPremium;
+  const rewardCoins = Math.max(100, Math.round(rawValue * getDerivedStats(state).saleMultiplier * premium));
+  const durations = [180_000, 300_000, 420_000];
+  const buyerIndex = Math.floor(contractUnit(seed + 3) * CONTRACT_BUYERS.length);
+  const titleIndex = Math.floor(contractUnit(seed + 4) * CONTRACT_TITLES.length);
+
+  return {
+    id: `contract-${now}-${state.completedContracts}-${index}`,
+    buyer: CONTRACT_BUYERS[buyerIndex],
+    title: CONTRACT_TITLES[titleIndex],
+    requirements,
+    rewardCoins,
+    rewardReputation: difficulty + 1,
+    expiresAt: now + durations[difficulty],
+  };
+}
+
+export function contractRequirementsMet(state: GameState, offer: ContractOffer): boolean {
+  return Object.entries(offer.requirements).every(
+    ([id, amount]) => state.inventory[id as OreId] >= (amount ?? 0),
+  );
+}
+
+export function ensureContractOffers(state: GameState, now = Date.now()): GameState {
+  if (state.maxDepth < CONTRACT_UNLOCK_DEPTH) return state;
+  const offers = state.contractOffers.filter((offer) => offer.expiresAt > now);
+  const changed = offers.length !== state.contractOffers.length;
+
+  while (offers.length < CONTRACT_OFFER_COUNT) {
+    offers.push(createContractOffer({ ...state, contractOffers: offers }, now, offers.length));
+  }
+
+  return changed || offers.length !== state.contractOffers.length ? { ...state, contractOffers: offers } : state;
+}
+
+export function reputationRank(reputation: number): string {
+  if (reputation >= 80) return "Maison de confiance";
+  if (reputation >= 45) return "Intendant du noyau";
+  if (reputation >= 20) return "Négociant de faille";
+  if (reputation >= 8) return "Fournisseur agréé";
+  return "Prospecteur indépendant";
 }
 
 export function expectedOreYield(depth: number, yieldMultiplier: number): number {
@@ -796,10 +925,11 @@ function strike(state: GameState): GameState {
 }
 
 function tick(state: GameState, seconds: number): GameState {
-  const stats = getDerivedStats(state);
-  if (stats.autoDamage <= 0 || state.activeEvent) return state;
+  let next = ensureContractOffers(state);
+  const stats = getDerivedStats(next);
+  if (stats.autoDamage <= 0 || next.activeEvent) return next;
 
-  let next = { ...state, rockHp: state.rockHp - stats.autoDamage * seconds };
+  next = { ...next, rockHp: next.rockHp - stats.autoDamage * seconds };
   let guard = 0;
   while (next.rockHp <= 0 && guard < 12) {
     const overflow = Math.abs(next.rockHp);
@@ -872,12 +1002,15 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
     case "SELL_ALL": {
       const value = getDerivedStats(state).inventoryValue;
+      const soldUnits = inventoryCount(state);
       if (value <= 0) return { ...state, message: "Le chariot est vide." };
+      const timestamp = Date.now();
       return {
         ...state,
         coins: state.coins + value,
         inventory: emptyInventory(),
         salesCompleted: state.salesCompleted + 1,
+        tradeHistory: [{ id: timestamp + Math.random(), kind: "market" as const, label: "Marché · chargement complet", units: soldUnits, coins: value, timestamp }, ...state.tradeHistory].slice(0, 12),
         message: `Vente terminée · ${formatNumber(value)} pièces ajoutées à l'atelier.`,
       };
     }
@@ -891,14 +1024,54 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       selectedIds.forEach((id) => {
         inventory[id] = 0;
       });
+      const timestamp = Date.now();
 
       return {
         ...state,
         coins: state.coins + value,
         inventory,
         salesCompleted: state.salesCompleted + 1,
+        tradeHistory: [{ id: timestamp + Math.random(), kind: "market" as const, label: `Marché · ${selectedIds.length} lots`, units: soldUnits, coins: value, timestamp }, ...state.tradeHistory].slice(0, 12),
         message: `Marché conclu · ${formatNumber(soldUnits)} minerais vendus pour ${formatNumber(value)} pièces.`,
       };
+    }
+    case "FULFILL_CONTRACT": {
+      const offer = state.contractOffers.find((candidate) => candidate.id === action.id);
+      const now = Date.now();
+      if (!offer) return state;
+      if (offer.expiresAt <= now) {
+        return {
+          ...state,
+          contractOffers: state.contractOffers.filter((candidate) => candidate.id !== action.id),
+          message: "Le convoi est parti. Une nouvelle offre arrivera sous peu.",
+        };
+      }
+      if (!contractRequirementsMet(state, offer)) {
+        return { ...state, message: "Le chargement ne couvre pas encore cette commande." };
+      }
+
+      const inventory = { ...state.inventory };
+      let units = 0;
+      Object.entries(offer.requirements).forEach(([id, amount]) => {
+        const required = amount ?? 0;
+        inventory[id as OreId] -= required;
+        units += required;
+      });
+
+      return addJournal(
+        {
+          ...state,
+          coins: state.coins + offer.rewardCoins,
+          reputation: state.reputation + offer.rewardReputation,
+          completedContracts: state.completedContracts + 1,
+          contractOffers: state.contractOffers.filter((candidate) => candidate.id !== action.id),
+          inventory,
+          tradeHistory: [{ id: now + Math.random(), kind: "contract" as const, label: offer.buyer, units, coins: offer.rewardCoins, timestamp: now }, ...state.tradeHistory].slice(0, 12),
+          message: `CONTRAT HONORÉ · ${formatNumber(offer.rewardCoins)} pièces et +${offer.rewardReputation} réputation.`,
+        },
+        `${offer.buyer} a reçu sa commande. La Compagnie commence à retenir ton nom.`,
+        "good",
+      );
     }
     case "BUY_UPGRADE": {
       const definition = UPGRADES.find((upgrade) => upgrade.id === action.id);
@@ -985,7 +1158,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const fresh = createInitialState();
       return {
         ...fresh,
-        version: 5,
+        version: 6,
         echoes: state.echoes + reward,
         maxDepth: Math.max(state.maxDepth, state.depth),
         expeditions: state.expeditions + 1,
@@ -994,6 +1167,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         totalStrikes: state.totalStrikes,
         totalMined: state.totalMined,
         salesCompleted: state.salesCompleted,
+        reputation: state.reputation,
+        completedContracts: state.completedContracts,
+        tradeHistory: state.tradeHistory,
         claimedGoals: state.claimedGoals,
         soundOn: state.soundOn,
         impact: { ...fresh.impact, id: state.impact.id + 1 },

@@ -2,6 +2,14 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
+## Version 0.5.0 (branche de préparation)
+
+- Compagnie minière débloquée à 40 mètres avec trois contrats simultanés ;
+- commandes adaptées aux minerais accessibles dans le cycle actif ;
+- échéances sans pénalité, primes supérieures au marché et réputation persistante ;
+- cinq rangs commerciaux, historique des transactions et nouveaux objectifs ;
+- réputation et registre conservés lors des nouvelles expéditions.
+
 ## Version 0.4.1
 
 - bourse des filons débloquée à 25 mètres, avec cours individuels renouvelés toutes les 45 secondes ;
