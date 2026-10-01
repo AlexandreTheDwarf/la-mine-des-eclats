@@ -2,7 +2,7 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
-## Version 0.5.0 (branche de préparation)
+## Version 0.5.0 - La Compagnie
 
 - Compagnie minière débloquée à 40 mètres avec trois contrats simultanés ;
 - commandes adaptées aux minerais accessibles dans le cycle actif ;
