@@ -2,8 +2,9 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
-## Version 0.6.0 - Le Laboratoire
+## Version 0.6.1 (branche de préparation)
 
+- profondeur actuelle et prochaine balise toujours visibles sur téléphone ;
 - laboratoire d'échos débloqué à 80 mètres avec un codex des dix minerais ;
 - trois niveaux d'analyse par minerai, contre des échantillons de plus en plus importants ;
 - données de recherche dépensées dans six protocoles permanents à quatre niveaux ;

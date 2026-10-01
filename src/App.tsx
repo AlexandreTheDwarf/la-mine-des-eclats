@@ -249,6 +249,9 @@ function IconButton({
 }
 
 function TopBar({ state, onSound, onSettings }: { state: GameState; onSound: () => void; onSettings: () => void }) {
+  const cycleTarget = expeditionTarget(state.expeditions);
+  const cycleProgress = Math.min(100, (state.depth / cycleTarget) * 100);
+
   return (
     <header className="topbar">
       <div className="brand-lockup">
@@ -267,10 +270,13 @@ function TopBar({ state, onSound, onSettings }: { state: GameState; onSound: () 
           <span>PIÈCES</span>
           <strong>{formatNumber(state.coins)}</strong>
         </div>
-        <div className="resource-pill resource-pill--depth">
+        <div
+          className="resource-pill resource-pill--depth"
+          style={{ "--cycle-progress": `${cycleProgress}%` } as CSSProperties}
+        >
           <Gauge aria-hidden="true" />
-          <span>PROFONDEUR</span>
-          <strong>{formatNumber(state.depth)} m</strong>
+          <span>PROFONDEUR · CYCLE {state.expeditions + 1}</span>
+          <strong>{formatNumber(state.depth)} / {formatNumber(cycleTarget)} m</strong>
         </div>
         {(state.echoes > 0 || state.maxDepth >= 120) && (
           <div className="resource-pill resource-pill--echoes">
@@ -1249,7 +1255,7 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>VERSION 0.6.0 · LE LABORATOIRE</small><h2 id="settings-title">Sauvegarde</h2></div>
+          <div><small>BRANCHE TEST · VERSION 0.6.1</small><h2 id="settings-title">Sauvegarde</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>

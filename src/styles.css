@@ -160,6 +160,23 @@ svg {
   color: #98bcc5;
 }
 
+.resource-pill--depth {
+  position: relative;
+  overflow: hidden;
+}
+
+.resource-pill--depth::after {
+  position: absolute;
+  right: auto;
+  bottom: 0;
+  left: 0;
+  width: var(--cycle-progress, 0%);
+  height: 2px;
+  background: var(--cyan);
+  box-shadow: 0 0 10px rgba(91, 230, 220, 0.65);
+  content: "";
+}
+
 .resource-pill--echoes svg {
   color: #d8c8ff;
 }
@@ -3239,12 +3256,41 @@ button.ore-row {
   }
 
   .resource-strip {
+    flex-wrap: wrap;
     justify-content: stretch;
   }
 
   .resource-pill {
     min-width: 0;
     flex: 1;
+  }
+
+  .resource-pill--depth {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    grid-template-rows: 1fr;
+    order: -1;
+    min-height: 40px;
+    flex: 0 0 100%;
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+
+  .resource-pill--depth svg {
+    grid-row: 1;
+    grid-column: 1;
+  }
+
+  .resource-pill--depth > span {
+    grid-row: 1;
+    grid-column: 2;
+    align-self: center;
+  }
+
+  .resource-pill--depth strong {
+    grid-row: 1;
+    grid-column: 3;
+    align-self: center;
   }
 
   .icon-button {
@@ -3259,7 +3305,7 @@ button.ore-row {
   }
 
   .mine-stage {
-    flex: 0 0 min(690px, calc(100dvh - 123px));
+    flex: 0 0 min(690px, calc(100dvh - 172px));
     width: 100%;
     min-height: 560px;
   }
@@ -3387,6 +3433,10 @@ button.ore-row {
   .resource-pill {
     grid-template-columns: 18px auto;
     padding: 5px 7px;
+  }
+
+  .resource-pill--depth {
+    grid-template-columns: 18px minmax(0, 1fr) auto;
   }
 
   .resource-pill svg {
