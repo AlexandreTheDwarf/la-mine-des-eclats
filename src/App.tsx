@@ -12,6 +12,7 @@ import {
   Database,
   Factory,
   Flame,
+  FlaskConical,
   Gauge,
   Gem,
   Hammer,
@@ -21,6 +22,7 @@ import {
   Lock,
   ListChecks,
   Map,
+  Microscope,
   Minus,
   Package,
   Pickaxe,
@@ -60,9 +62,12 @@ import {
   CONTRACT_UNLOCK_DEPTH,
   LEGACIES,
   MACHINES,
+  MAX_ORE_STUDY_LEVEL,
   MARKET_UNLOCK_DEPTH,
   ORES,
   ORE_ORDER,
+  RESEARCH,
+  RESEARCH_UNLOCK_DEPTH,
   TOOLS,
   UPGRADES,
   ZONES,
@@ -81,10 +86,16 @@ import {
   legacyCost,
   machineCost,
   marketQuoteAt,
+  oreStudyCost,
+  oreStudyReward,
+  oreStudyUnlockDepth,
+  oreStudyUnlocked,
   expeditionReward,
   expeditionTarget,
   rockNameFor,
   reputationRank,
+  researchCost,
+  researchLevelCount,
   saveGame,
   selectedInventoryValue,
   upgradeCost,
@@ -94,10 +105,11 @@ import {
   type LegacyId,
   type MachineId,
   type OreId,
+  type ResearchId,
   type UpgradeId,
 } from "./game";
 
-type PanelTab = "upgrades" | "machines" | "forge" | "contracts" | "goals" | "expedition";
+type PanelTab = "upgrades" | "machines" | "forge" | "contracts" | "research" | "goals" | "expedition";
 
 interface HitEffect {
   id: number;
@@ -110,7 +122,7 @@ interface HitEffect {
 
 interface GameNotice {
   id: string;
-  kind: "unlock" | "goal" | "contract";
+  kind: "unlock" | "goal" | "contract" | "research";
   name: string;
   detail: string;
   machineId?: MachineId;
@@ -139,11 +151,21 @@ const legacyIcons: Record<LegacyId, LucideIcon> = {
   endurance: Shield,
 };
 
+const researchIcons: Record<ResearchId, LucideIcon> = {
+  impact: Crosshair,
+  automation: Bot,
+  extraction: Gem,
+  metallurgy: Shield,
+  resonance: Radio,
+  commerce: CircleDollarSign,
+};
+
 const tabDefinitions: Array<{ id: PanelTab; label: string; icon: LucideIcon }> = [
   { id: "upgrades", label: "Améliorer", icon: Zap },
   { id: "machines", label: "Machines", icon: Bot },
   { id: "forge", label: "Forge", icon: Hammer },
   { id: "contracts", label: "Contrats", icon: ClipboardList },
+  { id: "research", label: "Labo", icon: FlaskConical },
   { id: "goals", label: "Objectifs", icon: Trophy },
   { id: "expedition", label: "Cycles", icon: Compass },
 ];
@@ -162,9 +184,9 @@ function NoticeStack({
   return (
     <div className="notice-stack" aria-live="polite" aria-label="Nouveautés de la mine">
       {notices.slice(0, 2).map((notice) => {
-        const Icon = notice.kind === "contract" ? Handshake : notice.machineId ? machineIcons[notice.machineId] : Trophy;
-        const eyebrow = notice.kind === "unlock" ? "NOUVEAU PLAN DÉBLOQUÉ" : notice.kind === "contract" ? "NOUVEAU RÉSEAU" : "OBJECTIF ATTEINT";
-        const actionLabel = notice.kind === "unlock" ? "ATELIER" : notice.kind === "contract" ? "CONTRATS" : "OBJECTIFS";
+        const Icon = notice.kind === "contract" ? Handshake : notice.kind === "research" ? FlaskConical : notice.machineId ? machineIcons[notice.machineId] : Trophy;
+        const eyebrow = notice.kind === "unlock" ? "NOUVEAU PLAN DÉBLOQUÉ" : notice.kind === "contract" ? "NOUVEAU RÉSEAU" : notice.kind === "research" ? "NOUVELLE AILE" : "OBJECTIF ATTEINT";
+        const actionLabel = notice.kind === "unlock" ? "ATELIER" : notice.kind === "contract" ? "CONTRATS" : notice.kind === "research" ? "LABO" : "OBJECTIFS";
         return (
           <article className={`game-notice game-notice--${notice.kind}`} key={notice.id}>
             <span className="game-notice__icon"><Icon aria-hidden="true" /></span>
@@ -771,6 +793,100 @@ function ForgePanel({ state, dispatch }: { state: GameState; dispatch: React.Dis
   );
 }
 
+function ResearchPanel({ state, dispatch }: { state: GameState; dispatch: React.Dispatch<Parameters<typeof gameReducer>[1]> }) {
+  if (state.maxDepth < RESEARCH_UNLOCK_DEPTH) {
+    return (
+      <div className="research-lock">
+        <FlaskConical aria-hidden="true" />
+        <small>LABORATOIRE HORS LIGNE</small>
+        <h3>Les instruments exigent une pression plus profonde.</h3>
+        <ProgressBar value={(state.maxDepth / RESEARCH_UNLOCK_DEPTH) * 100} label="Déblocage du laboratoire" />
+        <strong>{formatNumber(state.maxDepth)} / {RESEARCH_UNLOCK_DEPTH} m</strong>
+      </div>
+    );
+  }
+
+  const completedStudies = Object.values(state.oreStudies).reduce((sum, level) => sum + level, 0);
+  const protocolLevels = researchLevelCount(state);
+  const totalProtocolLevels = RESEARCH.reduce((sum, definition) => sum + definition.max, 0);
+
+  return (
+    <div className="research-panel">
+      <section className="research-console">
+        <span><FlaskConical aria-hidden="true" /></span>
+        <div>
+          <small>DONNÉES DISPONIBLES</small>
+          <h3>{formatNumber(state.researchPoints)}</h3>
+        </div>
+        <strong>{completedStudies}<small>/ {ORE_ORDER.length * MAX_ORE_STUDY_LEVEL} analyses</small></strong>
+        <ProgressBar value={(completedStudies / (ORE_ORDER.length * MAX_ORE_STUDY_LEVEL)) * 100} label="Progression du codex minéral" />
+      </section>
+
+      <div className="research-heading">
+        <span>CODEX MINÉRAL</span>
+        <small>Les échantillons sont consommés</small>
+      </div>
+      <div className="ore-study-list">
+        {ORE_ORDER.map((id) => {
+          const unlocked = oreStudyUnlocked(state, id);
+          const level = state.oreStudies[id];
+          const maxed = level >= MAX_ORE_STUDY_LEVEL;
+          const sampleCost = oreStudyCost(id, level);
+          const reward = oreStudyReward(id, level);
+          const ready = unlocked && !maxed && state.inventory[id] >= sampleCost;
+          return (
+            <article className={`ore-study-row${unlocked ? "" : " is-locked"}${maxed ? " is-complete" : ""}`} style={{ "--ore-color": ORES[id].color } as CSSProperties} key={id}>
+              <span className="ore-swatch" style={{ "--ore-color": ORES[id].color, "--ore-glow": ORES[id].glow } as CSSProperties} />
+              <div className="ore-study-copy">
+                <strong>{unlocked ? ORES[id].shortName : "Échantillon inconnu"}</strong>
+                <span className="study-level" aria-label={`Niveau d'analyse ${level} sur ${MAX_ORE_STUDY_LEVEL}`}>
+                  {Array.from({ length: MAX_ORE_STUDY_LEVEL }, (_, index) => <i className={index < level ? "is-active" : ""} key={index} />)}
+                </span>
+                <small>
+                  {!unlocked
+                    ? `Identification à ${oreStudyUnlockDepth(id)} m`
+                    : maxed
+                      ? "Signature entièrement documentée"
+                      : `${formatNumber(state.inventory[id])} / ${formatNumber(sampleCost)} · +${reward} donnée${reward > 1 ? "s" : ""}`}
+                </small>
+              </div>
+              <button type="button" disabled={!ready} onClick={() => dispatch({ type: "ANALYZE_ORE", id })}>
+                {maxed ? <Check aria-hidden="true" /> : unlocked ? <Microscope aria-hidden="true" /> : <Lock aria-hidden="true" />}
+                <span>{maxed ? "COMPLET" : "ANALYSER"}</span>
+              </button>
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="research-heading research-heading--protocols">
+        <span>PROTOCOLES · {protocolLevels}/{totalProtocolLevels}</span>
+        <small>Conservés entre les cycles</small>
+      </div>
+      <div className="protocol-list">
+        {RESEARCH.map((definition) => {
+          const level = state.research[definition.id];
+          const maxed = level >= definition.max;
+          const cost = researchCost(definition, level);
+          const Icon = researchIcons[definition.id];
+          return (
+            <div className={`protocol-row${maxed ? " is-complete" : ""}`} key={definition.id}>
+              <span><Icon aria-hidden="true" /></span>
+              <div>
+                <strong>{definition.name}<b>Niv. {level}/{definition.max}</b></strong>
+                <small>{maxed ? "Protocole maîtrisé" : definition.description}</small>
+              </div>
+              <button type="button" disabled={maxed || state.researchPoints < cost} onClick={() => dispatch({ type: "BUY_RESEARCH", id: definition.id })}>
+                {maxed ? <Check aria-hidden="true" /> : <><Database aria-hidden="true" />{cost}</>}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function GoalsPanel({ state, dispatch }: { state: GameState; dispatch: React.Dispatch<Parameters<typeof gameReducer>[1]> }) {
   return (
     <div className="goal-list">
@@ -783,6 +899,7 @@ function GoalsPanel({ state, dispatch }: { state: GameState; dispatch: React.Dis
           goal.reward.coins ? `${formatNumber(goal.reward.coins)} pièces` : "",
           goal.reward.echoes ? `${formatNumber(goal.reward.echoes)} échos` : "",
           goal.reward.drill ? `${goal.reward.drill} taupe` : "",
+          goal.reward.research ? `${goal.reward.research} données` : "",
         ].filter(Boolean).join(" · ");
         return (
           <div className={`goal-row${complete ? " is-complete" : ""}${claimed ? " is-claimed" : ""}`} key={goal.id}>
@@ -995,6 +1112,9 @@ function CommandPanel({
 }) {
   const readyGoals = GOALS.filter((goal) => goal.progress(state) >= goal.target && !state.claimedGoals.includes(goal.id)).length;
   const readyContracts = state.contractOffers.filter((offer) => offer.expiresAt > Date.now() && contractRequirementsMet(state, offer)).length;
+  const readyAnalyses = state.maxDepth >= RESEARCH_UNLOCK_DEPTH
+    ? ORE_ORDER.filter((id) => oreStudyUnlocked(state, id) && state.oreStudies[id] < MAX_ORE_STUDY_LEVEL && state.inventory[id] >= oreStudyCost(id, state.oreStudies[id])).length
+    : 0;
   return (
     <aside className="command-panel">
       <nav className="panel-tabs" aria-label="Atelier">
@@ -1012,6 +1132,7 @@ function CommandPanel({
               <span>{tab.label}</span>
               {tab.id === "goals" && readyGoals > 0 && <b className="tab-badge" aria-label={`${readyGoals} objectif${readyGoals > 1 ? "s" : ""} à récupérer`}>{readyGoals}</b>}
               {tab.id === "contracts" && readyContracts > 0 && <b className="tab-badge tab-badge--contract" aria-label={`${readyContracts} contrat${readyContracts > 1 ? "s" : ""} prêt${readyContracts > 1 ? "s" : ""}`}>{readyContracts}</b>}
+              {tab.id === "research" && readyAnalyses > 0 && <b className="tab-badge tab-badge--research" aria-label={`${readyAnalyses} analyse${readyAnalyses > 1 ? "s" : ""} prête${readyAnalyses > 1 ? "s" : ""}`}>{readyAnalyses}</b>}
             </button>
           );
         })}
@@ -1019,15 +1140,16 @@ function CommandPanel({
       <div className="command-panel__body">
         <div className="panel-heading panel-heading--command">
           <div>
-            <span>{activeTab === "contracts" ? "COMPAGNIE MINIÈRE" : "ATELIER MOBILE"}</span>
+            <span>{activeTab === "contracts" ? "COMPAGNIE MINIÈRE" : activeTab === "research" ? "LABORATOIRE D'ÉCHOS" : "ATELIER MOBILE"}</span>
             <h2>{tabDefinitions.find((tab) => tab.id === activeTab)?.label}</h2>
           </div>
-          {activeTab === "contracts" ? <Handshake aria-hidden="true" /> : <HardHat aria-hidden="true" />}
+          {activeTab === "contracts" ? <Handshake aria-hidden="true" /> : activeTab === "research" ? <FlaskConical aria-hidden="true" /> : <HardHat aria-hidden="true" />}
         </div>
         {activeTab === "upgrades" && <UpgradeList state={state} dispatch={dispatch} />}
         {activeTab === "machines" && <MachineList state={state} dispatch={dispatch} />}
         {activeTab === "forge" && <ForgePanel state={state} dispatch={dispatch} />}
         {activeTab === "contracts" && <ContractPanel state={state} dispatch={dispatch} />}
+        {activeTab === "research" && <ResearchPanel state={state} dispatch={dispatch} />}
         {activeTab === "goals" && <GoalsPanel state={state} dispatch={dispatch} />}
         {activeTab === "expedition" && <ExpeditionPanel state={state} dispatch={dispatch} />}
       </div>
@@ -1127,7 +1249,7 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>VERSION 0.5.0 · LA COMPAGNIE</small><h2 id="settings-title">Sauvegarde</h2></div>
+          <div><small>BRANCHE TEST · VERSION 0.6.0</small><h2 id="settings-title">Sauvegarde</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
@@ -1260,6 +1382,14 @@ export default function App() {
         detail: "Trois convois transmettent désormais leurs commandes et leurs échéances.",
       });
     }
+    if (oldMaxDepth < RESEARCH_UNLOCK_DEPTH && state.maxDepth >= RESEARCH_UNLOCK_DEPTH) {
+      unlocked.push({
+        id: `unlock-research-${state.maxDepth}`,
+        kind: "research",
+        name: "Le Laboratoire d'échos",
+        detail: "Les minerais peuvent désormais être analysés pour développer des protocoles permanents.",
+      });
+    }
     previousMaxDepth.current = state.maxDepth;
     queueNotices(unlocked);
   }, [queueNotices, state.maxDepth]);
@@ -1319,7 +1449,7 @@ export default function App() {
   };
 
   const openNotice = (notice: GameNotice) => {
-    setActiveTab(notice.kind === "unlock" ? "machines" : notice.kind === "contract" ? "contracts" : "goals");
+    setActiveTab(notice.kind === "unlock" ? "machines" : notice.kind === "contract" ? "contracts" : notice.kind === "research" ? "research" : "goals");
     setNotices((current) => current.filter((item) => item.id !== notice.id));
     window.setTimeout(() => document.querySelector(".command-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };

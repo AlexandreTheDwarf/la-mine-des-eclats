@@ -2,6 +2,14 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
+## Version 0.6.0 (branche de préparation)
+
+- laboratoire d'échos débloqué à 80 mètres avec un codex des dix minerais ;
+- trois niveaux d'analyse par minerai, contre des échantillons de plus en plus importants ;
+- données de recherche dépensées dans six protocoles permanents à quatre niveaux ;
+- bonus de frappe, automatisation, extraction, durabilité, résonance et commerce ;
+- recherche, codex et données conservés entre les cycles, avec trois nouveaux objectifs.
+
 ## Version 0.5.0 - La Compagnie
 
 - Compagnie minière débloquée à 40 mètres avec trois contrats simultanés ;

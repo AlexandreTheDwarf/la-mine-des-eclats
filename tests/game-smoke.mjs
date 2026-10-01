@@ -5,6 +5,8 @@ import {
   LEGACIES,
   MARKET_PERIOD_MS,
   ORE_ORDER,
+  RESEARCH,
+  RESEARCH_UNLOCK_DEPTH,
   TOOLS,
   activeZoneForState,
   canStartExpedition,
@@ -19,6 +21,9 @@ import {
   getDerivedStats,
   inventoryCount,
   marketQuoteAt,
+  oreStudyCost,
+  oreStudyReward,
+  researchCost,
   rockMaxHpFor,
   reputationRank,
   selectedInventoryValue,
@@ -92,6 +97,31 @@ assert.equal(contractState.tradeHistory[0].kind, "contract", "contract deliverie
 assert.ok(!contractState.contractOffers.some((offer) => offer.id === firstContract.id), "a delivered contract should leave the board");
 contractState = ensureContractOffers(contractState, contractNow + 1_000);
 assert.equal(contractState.contractOffers.length, CONTRACT_OFFER_COUNT, "a delivered contract should be replaced");
+
+const studyCost = oreStudyCost("stone", 0);
+let researchState = {
+  ...createInitialState(),
+  depth: RESEARCH_UNLOCK_DEPTH - 1,
+  maxDepth: RESEARCH_UNLOCK_DEPTH - 1,
+  inventory: { ...createInitialState().inventory, stone: studyCost },
+};
+researchState = gameReducer(researchState, { type: "ANALYZE_ORE", id: "stone" });
+assert.equal(researchState.analysesCompleted, 0, "the laboratory should stay locked before 80 metres");
+
+researchState = { ...researchState, depth: RESEARCH_UNLOCK_DEPTH, maxDepth: RESEARCH_UNLOCK_DEPTH };
+researchState = gameReducer(researchState, { type: "ANALYZE_ORE", id: "stone" });
+assert.equal(researchState.inventory.stone, 0, "an analysis should consume its displayed samples");
+assert.equal(researchState.oreStudies.stone, 1, "an analysis should advance the mineral codex");
+assert.equal(researchState.analysesCompleted, 1, "an analysis should increment the lifetime record");
+assert.equal(researchState.researchPoints, oreStudyReward("stone", 0), "an analysis should grant its advertised data");
+
+const impactProtocol = RESEARCH.find((definition) => definition.id === "impact");
+assert.ok(impactProtocol, "the impact protocol should exist");
+const researchDamage = getDerivedStats(researchState).clickDamage;
+researchState = { ...researchState, researchPoints: researchCost(impactProtocol, 0) };
+researchState = gameReducer(researchState, { type: "BUY_RESEARCH", id: "impact" });
+assert.equal(researchState.research.impact, 1, "buying a protocol should advance its level");
+assert.ok(getDerivedStats(researchState).clickDamage > researchDamage, "impact research should improve manual damage");
 
 assert.equal(
   expectedOreYield(22, 2),
@@ -167,6 +197,10 @@ let cappedState = {
   reputation: 17,
   completedContracts: 4,
   tradeHistory: [{ id: 1, kind: "contract", label: "Comptoir test", units: 12, coins: 400, timestamp: 1 }],
+  researchPoints: 19,
+  analysesCompleted: 3,
+  oreStudies: { ...createInitialState().oreStudies, stone: 2 },
+  research: { ...createInitialState().research, impact: 1 },
 };
 cappedState = gameReducer(cappedState, { type: "STRIKE" });
 assert.equal(cappedState.depth, 120, "the first expedition should stop at its 120 metre beacon");
@@ -190,7 +224,12 @@ assert.equal(inventoryCount(cycledState), 0, "a new cycle should reset the cargo
 assert.equal(cycledState.reputation, 17, "Company reputation should survive a new cycle");
 assert.equal(cycledState.completedContracts, 4, "fulfilled contracts should survive a new cycle");
 assert.equal(cycledState.tradeHistory.length, 1, "the trade ledger should survive a new cycle");
+assert.equal(cycledState.researchPoints, 19, "unused research data should survive a new cycle");
+assert.equal(cycledState.analysesCompleted, 3, "the analysis record should survive a new cycle");
+assert.equal(cycledState.oreStudies.stone, 2, "the mineral codex should survive a new cycle");
+assert.equal(cycledState.research.impact, 1, "research protocols should survive a new cycle");
 
+cycledState = { ...cycledState, toolTier: 1 };
 const legacyDamage = getDerivedStats(cycledState).clickDamage;
 cycledState = { ...cycledState, echoes: 100 };
 cycledState = gameReducer(cycledState, { type: "BUY_LEGACY", id: LEGACIES[0].id });
@@ -198,8 +237,10 @@ assert.ok(getDerivedStats(cycledState).clickDamage > legacyDamage, "a permanent 
 
 const oldSave = Buffer.from(JSON.stringify({ version: 4, depth: 60, selectedZoneId: 2, rockHp: 10, rockMaxHp: 10 }), "utf8").toString("base64");
 const migratedSave = decodeSave(oldSave);
-assert.equal(migratedSave.version, 6, "old saves should migrate to the Company campaign");
+assert.equal(migratedSave.version, 7, "old saves should migrate to the Laboratory campaign");
 assert.equal(migratedSave.maxDepth, 60, "old saves should preserve their depth as a permanent record");
 assert.equal(migratedSave.inventory.dawn, 0, "old saves should receive the new ore slots");
+assert.equal(migratedSave.researchPoints, 0, "old saves should receive the research resource");
+assert.equal(migratedSave.research.impact, 0, "old saves should receive empty research protocols");
 
-console.log("OK: mining, market sales, Company contracts, galleries, legacies and expedition cycles.");
+console.log("OK: mining, market sales, Company contracts, Laboratory research, galleries, legacies and expedition cycles.");

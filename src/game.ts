@@ -13,6 +13,7 @@ export type OreId =
 export type UpgradeId = "power" | "sturdy" | "precision" | "geology" | "maintenance";
 export type MachineId = "drill" | "cart" | "smelter" | "resonator" | "excavator";
 export type LegacyId = "force" | "industry" | "fortune" | "endurance";
+export type ResearchId = "impact" | "automation" | "extraction" | "metallurgy" | "resonance" | "commerce";
 export type EventChoice = "bold" | "careful";
 
 export interface OreDefinition {
@@ -74,6 +75,15 @@ export interface LegacyDefinition {
   max: number;
 }
 
+export interface ResearchDefinition {
+  id: ResearchId;
+  name: string;
+  description: string;
+  baseCost: number;
+  scale: number;
+  max: number;
+}
+
 export interface MineEvent {
   kind: "song" | "cache" | "fracture";
   title: string;
@@ -126,7 +136,7 @@ export interface TradeRecord {
 }
 
 export interface GameState {
-  version: 6;
+  version: 7;
   shards: number;
   coins: number;
   echoes: number;
@@ -152,6 +162,10 @@ export interface GameState {
   completedContracts: number;
   contractOffers: ContractOffer[];
   tradeHistory: TradeRecord[];
+  researchPoints: number;
+  analysesCompleted: number;
+  oreStudies: Record<OreId, number>;
+  research: Record<ResearchId, number>;
   claimedGoals: string[];
   journal: JournalEntry[];
   activeEvent: MineEvent | null;
@@ -171,6 +185,8 @@ export type GameAction =
   | { type: "SELL_ALL" }
   | { type: "SELL_SELECTED"; ids: OreId[]; rates: Partial<Record<OreId, number>> }
   | { type: "FULFILL_CONTRACT"; id: string }
+  | { type: "ANALYZE_ORE"; id: OreId }
+  | { type: "BUY_RESEARCH"; id: ResearchId }
   | { type: "BUY_UPGRADE"; id: UpgradeId }
   | { type: "BUY_MACHINE"; id: MachineId }
   | { type: "BUY_LEGACY"; id: LegacyId }
@@ -204,6 +220,8 @@ export const MARKET_UNLOCK_DEPTH = 25;
 export const MARKET_PERIOD_MS = 45_000;
 export const CONTRACT_UNLOCK_DEPTH = 40;
 export const CONTRACT_OFFER_COUNT = 3;
+export const RESEARCH_UNLOCK_DEPTH = 80;
+export const MAX_ORE_STUDY_LEVEL = 3;
 
 function marketRateForSlot(slot: number, oreIndex: number): number {
   const raw = Math.sin((slot + 11) * 12.9898 + (oreIndex + 1) * 78.233) * 43_758.5453;
@@ -374,13 +392,22 @@ export const LEGACIES: LegacyDefinition[] = [
   { id: "endurance", name: "Métal souvenu", description: "+15 % de durabilité maximale par niveau", baseCost: 2, scale: 2.3, max: 8 },
 ];
 
+export const RESEARCH: ResearchDefinition[] = [
+  { id: "impact", name: "Percussion calculée", description: "+25 % de puissance manuelle", baseCost: 2, scale: 1.85, max: 4 },
+  { id: "automation", name: "Servomoteurs synchrones", description: "+22 % de puissance automatique", baseCost: 2, scale: 1.9, max: 4 },
+  { id: "extraction", name: "Cartographie fractale", description: "+8 % de minerai extrait", baseCost: 3, scale: 1.9, max: 4 },
+  { id: "metallurgy", name: "Alliages adaptatifs", description: "+10 % de durabilité maximale", baseCost: 3, scale: 1.95, max: 4 },
+  { id: "resonance", name: "Analyse harmonique", description: "+2 résonance et +1 % critique", baseCost: 3, scale: 1.95, max: 4 },
+  { id: "commerce", name: "Modèles de négociation", description: "+7 % sur les ventes et contrats", baseCost: 4, scale: 2, max: 4 },
+];
+
 export interface GoalDefinition {
   id: string;
   name: string;
   description: string;
   target: number;
   progress: (state: GameState) => number;
-  reward: { shards?: number; coins?: number; echoes?: number; drill?: number };
+  reward: { shards?: number; coins?: number; echoes?: number; drill?: number; research?: number };
 }
 
 export const GOALS: GoalDefinition[] = [
@@ -390,13 +417,16 @@ export const GOALS: GoalDefinition[] = [
   { id: "ember", name: "Ça chauffe", description: "Atteindre 25 mètres", target: 25, progress: (s) => s.maxDepth, reward: { shards: 220 } },
   { id: "first-contract", name: "Poignée de main", description: "Honorer un contrat", target: 1, progress: (s) => s.completedContracts, reward: { coins: 1_500 } },
   { id: "core", name: "Sous le monde", description: "Atteindre 60 mètres", target: 60, progress: (s) => s.maxDepth, reward: { shards: 1_000, coins: 2_500 } },
+  { id: "first-analysis", name: "Sous la loupe", description: "Analyser un minerai", target: 1, progress: (s) => s.analysesCompleted, reward: { research: 2 } },
   { id: "contractor", name: "Carnet de commandes", description: "Honorer 5 contrats", target: 5, progress: (s) => s.completedContracts, reward: { coins: 18_000 } },
   { id: "industry", name: "Petit empire", description: "Briser 150 filons", target: 150, progress: (s) => s.rocksBroken, reward: { coins: 8_000 } },
   { id: "cathedral", name: "La quatrième porte", description: "Atteindre 120 mètres", target: 120, progress: (s) => s.maxDepth, reward: { echoes: 1, coins: 25_000 } },
+  { id: "mineralogist", name: "Table périodique", description: "Mener 10 analyses", target: 10, progress: (s) => s.analysesCompleted, reward: { research: 8, coins: 35_000 } },
   { id: "first-cycle", name: "Revenir autrement", description: "Lancer une expédition", target: 1, progress: (s) => s.expeditions, reward: { echoes: 3 } },
   { id: "deep-industry", name: "Quart de nuit", description: "Briser 500 filons", target: 500, progress: (s) => s.rocksBroken, reward: { coins: 180_000 } },
   { id: "glass-sea", name: "Marcher sur le vide", description: "Atteindre 220 mètres", target: 220, progress: (s) => s.maxDepth, reward: { shards: 8_000, coins: 500_000 } },
   { id: "trusted-name", name: "Nom qui circule", description: "Honorer 15 contrats", target: 15, progress: (s) => s.completedContracts, reward: { echoes: 4, coins: 750_000 } },
+  { id: "research-network", name: "Théorie et pratique", description: "Développer 8 protocoles", target: 8, progress: (s) => Object.values(s.research).reduce((sum, level) => sum + level, 0), reward: { echoes: 3, research: 12 } },
   { id: "second-cycle", name: "La mine se souvient", description: "Lancer deux expéditions", target: 2, progress: (s) => s.expeditions, reward: { echoes: 6 } },
   { id: "dawn", name: "Avant le matin", description: "Atteindre 360 mètres", target: 360, progress: (s) => s.maxDepth, reward: { shards: 25_000, coins: 8_000_000 } },
   { id: "third-cycle", name: "Plus bas que la fin", description: "Lancer trois expéditions", target: 3, progress: (s) => s.expeditions, reward: { echoes: 10 } },
@@ -434,6 +464,19 @@ const emptyInventory = (): Record<OreId, number> => ({
 const emptyUpgrades = (): Record<UpgradeId, number> => ({ power: 0, sturdy: 0, precision: 0, geology: 0, maintenance: 0 });
 const emptyMachines = (): Record<MachineId, number> => ({ drill: 0, cart: 0, smelter: 0, resonator: 0, excavator: 0 });
 const emptyLegacy = (): Record<LegacyId, number> => ({ force: 0, industry: 0, fortune: 0, endurance: 0 });
+const emptyOreStudies = (): Record<OreId, number> => ({
+  stone: 0,
+  copper: 0,
+  iron: 0,
+  azurite: 0,
+  gold: 0,
+  ember: 0,
+  star: 0,
+  quartz: 0,
+  glass: 0,
+  dawn: 0,
+});
+const emptyResearch = (): Record<ResearchId, number> => ({ impact: 0, automation: 0, extraction: 0, metallurgy: 0, resonance: 0, commerce: 0 });
 
 export function zoneForDepth(depth: number): ZoneDefinition {
   return [...ZONES].reverse().find((zone) => depth >= zone.minDepth) ?? ZONES[0];
@@ -477,7 +520,7 @@ export function rockNameFor(state: GameState): string {
 export function createInitialState(): GameState {
   const rockMaxHp = rockMaxHpFor(1);
   return {
-    version: 6,
+    version: 7,
     shards: 0,
     coins: 0,
     echoes: 0,
@@ -503,6 +546,10 @@ export function createInitialState(): GameState {
     completedContracts: 0,
     contractOffers: [],
     tradeHistory: [],
+    researchPoints: 0,
+    analysesCompleted: 0,
+    oreStudies: emptyOreStudies(),
+    research: emptyResearch(),
     claimedGoals: [],
     journal: [{ id: 1, text: "La première galerie attend. Trois silhouettes observent depuis les poutres.", tone: "normal" }],
     activeEvent: null,
@@ -521,6 +568,8 @@ function normalizeState(candidate: Partial<GameState>): GameState {
   const candidateMachines = { ...base.machines, ...(candidate.machines ?? {}) };
   const candidateUpgrades = { ...base.upgrades, ...(candidate.upgrades ?? {}) };
   const candidateLegacy = { ...base.legacy, ...(candidate.legacy ?? {}) };
+  const candidateOreStudies = { ...base.oreStudies, ...(candidate.oreStudies ?? {}) };
+  const candidateResearch = { ...base.research, ...(candidate.research ?? {}) };
   const inferredPreviousSale =
     Number(candidate.coins ?? 0) > 0
     || Object.values(candidateMachines).some((level) => level > 0)
@@ -530,7 +579,7 @@ function normalizeState(candidate: Partial<GameState>): GameState {
   const merged: GameState = {
     ...base,
     ...candidate,
-    version: 6,
+    version: 7,
     toolTier,
     inventory: { ...base.inventory, ...(candidate.inventory ?? {}) },
     upgrades: candidateUpgrades,
@@ -543,6 +592,10 @@ function normalizeState(candidate: Partial<GameState>): GameState {
     completedContracts: Math.max(0, Math.floor(Number(candidate.completedContracts) || 0)),
     contractOffers: Array.isArray(candidate.contractOffers) ? candidate.contractOffers.slice(0, CONTRACT_OFFER_COUNT) : [],
     tradeHistory: Array.isArray(candidate.tradeHistory) ? candidate.tradeHistory.slice(0, 12) : [],
+    researchPoints: Math.max(0, Math.floor(Number(candidate.researchPoints) || 0)),
+    analysesCompleted: Math.max(0, Math.floor(Number(candidate.analysesCompleted) || 0)),
+    oreStudies: Object.fromEntries(ORE_ORDER.map((id) => [id, clamp(Math.floor(Number(candidateOreStudies[id]) || 0), 0, MAX_ORE_STUDY_LEVEL)])) as Record<OreId, number>,
+    research: Object.fromEntries(RESEARCH.map((definition) => [definition.id, clamp(Math.floor(Number(candidateResearch[definition.id]) || 0), 0, definition.max)])) as Record<ResearchId, number>,
     claimedGoals: Array.isArray(candidate.claimedGoals) ? candidate.claimedGoals : [],
     journal: Array.isArray(candidate.journal) && candidate.journal.length ? candidate.journal.slice(0, 12) : base.journal,
     activeEvent: null,
@@ -633,14 +686,15 @@ export function getDerivedStats(state: GameState): DerivedStats {
   const industryLegacy = Math.pow(1.45, state.legacy.industry);
   const fortuneLegacy = Math.pow(1.12, state.legacy.fortune);
   const enduranceLegacy = Math.pow(1.15, state.legacy.endurance);
-  const clickDamage = Math.max(1, Math.round(tool.damage * (1 + state.upgrades.power * 0.45) * manualLegacy));
-  const maxDurability = Math.round((tool.durability + state.upgrades.sturdy * 25) * enduranceLegacy);
-  const critChance = Math.min(0.52, 0.06 + state.upgrades.precision * 0.03 + (state.maxDepth >= 60 ? 0.04 : 0));
+  const research = state.research ?? emptyResearch();
+  const clickDamage = Math.max(1, Math.round(tool.damage * (1 + state.upgrades.power * 0.45) * manualLegacy * (1 + research.impact * 0.25)));
+  const maxDurability = Math.round((tool.durability + state.upgrades.sturdy * 25) * enduranceLegacy * (1 + research.metallurgy * 0.1));
+  const critChance = Math.min(0.56, 0.06 + state.upgrades.precision * 0.03 + research.resonance * 0.01 + (state.maxDepth >= 60 ? 0.04 : 0));
   const critMultiplier = 2 + Math.floor(state.upgrades.precision / 5) * 0.25;
-  const autoDamage = (state.machines.drill * 1.6 + state.machines.excavator * 180) * (1 + state.toolTier * 0.18) * industryLegacy;
-  const yieldMultiplier = (1 + state.machines.cart * 0.09 + state.upgrades.geology * 0.07) * fortuneLegacy;
-  const saleMultiplier = (1 + state.machines.smelter * 0.14 + (state.maxDepth >= 25 ? 0.05 : 0)) * fortuneLegacy;
-  const resonanceGain = 6 + state.machines.resonator * 2;
+  const autoDamage = (state.machines.drill * 1.6 + state.machines.excavator * 180) * (1 + state.toolTier * 0.18) * industryLegacy * (1 + research.automation * 0.22);
+  const yieldMultiplier = (1 + state.machines.cart * 0.09 + state.upgrades.geology * 0.07) * fortuneLegacy * (1 + research.extraction * 0.08);
+  const saleMultiplier = (1 + state.machines.smelter * 0.14 + (state.maxDepth >= 25 ? 0.05 : 0)) * fortuneLegacy * (1 + research.commerce * 0.07);
+  const resonanceGain = 6 + state.machines.resonator * 2 + research.resonance * 2;
   const missing = Math.max(0, maxDurability - state.durability);
   const discount = Math.max(0.28, 1 - state.upgrades.maintenance * 0.09);
   const repairCost = Math.max(2, Math.ceil((missing * 0.1 + state.toolTier * 3) * discount));
@@ -661,6 +715,69 @@ export function machineCost(definition: MachineDefinition, level: number): numbe
 
 export function legacyCost(definition: LegacyDefinition, level: number): number {
   return Math.ceil(definition.baseCost * Math.pow(definition.scale, level));
+}
+
+export function researchCost(definition: ResearchDefinition, level: number): number {
+  return Math.ceil(definition.baseCost * Math.pow(definition.scale, level));
+}
+
+const ORE_STUDY_BASE_COST: Record<OreId, number> = {
+  stone: 120,
+  copper: 80,
+  iron: 65,
+  azurite: 40,
+  gold: 25,
+  ember: 16,
+  star: 10,
+  quartz: 7,
+  glass: 4,
+  dawn: 2,
+};
+
+const ORE_STUDY_VALUE: Record<OreId, number> = {
+  stone: 1,
+  copper: 1,
+  iron: 2,
+  azurite: 2,
+  gold: 3,
+  ember: 4,
+  star: 5,
+  quartz: 7,
+  glass: 9,
+  dawn: 12,
+};
+
+const ORE_STUDY_UNLOCK_DEPTH: Record<OreId, number> = {
+  stone: RESEARCH_UNLOCK_DEPTH,
+  copper: RESEARCH_UNLOCK_DEPTH,
+  iron: RESEARCH_UNLOCK_DEPTH,
+  azurite: RESEARCH_UNLOCK_DEPTH,
+  gold: RESEARCH_UNLOCK_DEPTH,
+  ember: RESEARCH_UNLOCK_DEPTH,
+  star: RESEARCH_UNLOCK_DEPTH,
+  quartz: 120,
+  glass: 220,
+  dawn: 360,
+};
+
+export function oreStudyCost(id: OreId, level: number): number {
+  return Math.ceil(ORE_STUDY_BASE_COST[id] * Math.pow(2.25, level));
+}
+
+export function oreStudyReward(id: OreId, level: number): number {
+  return ORE_STUDY_VALUE[id] * (level + 1);
+}
+
+export function oreStudyUnlocked(state: Pick<GameState, "maxDepth">, id: OreId): boolean {
+  return state.maxDepth >= ORE_STUDY_UNLOCK_DEPTH[id];
+}
+
+export function oreStudyUnlockDepth(id: OreId): number {
+  return ORE_STUDY_UNLOCK_DEPTH[id];
+}
+
+export function researchLevelCount(state: Pick<GameState, "research">): number {
+  return Object.values(state.research).reduce((sum, level) => sum + level, 0);
 }
 
 export function machineCount(state: GameState): number {
@@ -1073,6 +1190,48 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         "good",
       );
     }
+    case "ANALYZE_ORE": {
+      if (state.maxDepth < RESEARCH_UNLOCK_DEPTH || !oreStudyUnlocked(state, action.id)) return state;
+      const level = state.oreStudies[action.id];
+      if (level >= MAX_ORE_STUDY_LEVEL) return state;
+      const sampleCost = oreStudyCost(action.id, level);
+      if (state.inventory[action.id] < sampleCost) {
+        return { ...state, message: `L'analyse exige encore ${formatNumber(sampleCost)} ${ORES[action.id].shortName.toLowerCase()}.` };
+      }
+      const reward = oreStudyReward(action.id, level);
+      return addJournal(
+        {
+          ...state,
+          inventory: { ...state.inventory, [action.id]: state.inventory[action.id] - sampleCost },
+          researchPoints: state.researchPoints + reward,
+          analysesCompleted: state.analysesCompleted + 1,
+          oreStudies: { ...state.oreStudies, [action.id]: level + 1 },
+          message: `ANALYSE TERMINÉE · +${reward} donnée${reward > 1 ? "s" : ""} de recherche.`,
+        },
+        `${ORES[action.id].name} documenté au niveau ${level + 1}. Le laboratoire comprend un peu mieux la mine.`,
+        level + 1 === MAX_ORE_STUDY_LEVEL ? "rare" : "good",
+      );
+    }
+    case "BUY_RESEARCH": {
+      if (state.maxDepth < RESEARCH_UNLOCK_DEPTH) return state;
+      const definition = RESEARCH.find((candidate) => candidate.id === action.id);
+      if (!definition) return state;
+      const level = state.research[action.id];
+      if (level >= definition.max) return state;
+      const cost = researchCost(definition, level);
+      if (state.researchPoints < cost) return { ...state, message: "Le laboratoire manque encore de données exploitables." };
+      const oldStats = getDerivedStats(state);
+      const next: GameState = {
+        ...state,
+        researchPoints: state.researchPoints - cost,
+        research: { ...state.research, [action.id]: level + 1 },
+        message: `${definition.name} validé au niveau ${level + 1}.`,
+      };
+      if (action.id === "metallurgy") {
+        next.durability += getDerivedStats(next).maxDurability - oldStats.maxDurability;
+      }
+      return addJournal(next, `PROTOCOLE VALIDÉ · ${definition.name}.`, "rare");
+    }
     case "BUY_UPGRADE": {
       const definition = UPGRADES.find((upgrade) => upgrade.id === action.id);
       if (!definition) return state;
@@ -1158,7 +1317,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const fresh = createInitialState();
       return {
         ...fresh,
-        version: 6,
+        version: 7,
         echoes: state.echoes + reward,
         maxDepth: Math.max(state.maxDepth, state.depth),
         expeditions: state.expeditions + 1,
@@ -1170,6 +1329,10 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         reputation: state.reputation,
         completedContracts: state.completedContracts,
         tradeHistory: state.tradeHistory,
+        researchPoints: state.researchPoints,
+        analysesCompleted: state.analysesCompleted,
+        oreStudies: state.oreStudies,
+        research: state.research,
         claimedGoals: state.claimedGoals,
         soundOn: state.soundOn,
         impact: { ...fresh.impact, id: state.impact.id + 1 },
@@ -1188,6 +1351,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         shards: state.shards + (goal.reward.shards ?? 0),
         coins: state.coins + (goal.reward.coins ?? 0),
         echoes: state.echoes + (goal.reward.echoes ?? 0),
+        researchPoints: state.researchPoints + (goal.reward.research ?? 0),
         machines: { ...state.machines, drill: state.machines.drill + (goal.reward.drill ?? 0) },
         claimedGoals: [...state.claimedGoals, goal.id],
         message: `Objectif accompli · ${goal.name}.`,
