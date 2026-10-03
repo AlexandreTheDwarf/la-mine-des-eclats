@@ -1359,7 +1359,7 @@ button.ore-row {
   top: 0;
   z-index: 4;
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   min-height: 62px;
   border-bottom: 1px solid var(--line);
   background: #061217;
@@ -2092,6 +2092,429 @@ button.ore-row {
 
 .protocol-row.is-complete {
   opacity: 0.7;
+}
+
+.industry-lock {
+  display: grid;
+  min-height: 310px;
+  padding: 28px 16px;
+  border: 1px solid rgba(255, 189, 85, 0.2);
+  place-items: center;
+  align-content: center;
+  background:
+    linear-gradient(rgba(255, 189, 85, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 189, 85, 0.035) 1px, transparent 1px);
+  background-size: 18px 18px;
+  text-align: center;
+}
+
+.industry-lock > svg {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 10px;
+  color: var(--amber);
+}
+
+.industry-lock > small,
+.industry-heading,
+.industry-console small {
+  color: var(--muted);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.58rem;
+  font-weight: 800;
+}
+
+.industry-lock h3 {
+  max-width: 250px;
+  margin: 5px 0 18px;
+  font-size: 0.94rem;
+}
+
+.industry-lock .progress {
+  width: min(240px, 100%);
+}
+
+.industry-lock > strong {
+  margin-top: 7px;
+  color: var(--amber-soft);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.65rem;
+}
+
+.industry-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.industry-console {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 11px;
+  border-top: 1px solid rgba(255, 189, 85, 0.28);
+  border-bottom: 1px solid rgba(255, 189, 85, 0.28);
+  background: rgba(255, 189, 85, 0.045);
+}
+
+.industry-console.is-running {
+  box-shadow: inset 3px 0 rgba(255, 189, 85, 0.75);
+}
+
+.industry-console > span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255, 189, 85, 0.32);
+  border-radius: 5px;
+  place-items: center;
+  color: var(--amber);
+}
+
+.industry-console > span svg {
+  width: 21px;
+}
+
+.industry-console h3 {
+  margin: 2px 0 0;
+  color: #fff0c9;
+  font-size: 0.9rem;
+}
+
+.industry-console > strong {
+  display: grid;
+  color: var(--amber-soft);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.9rem;
+  text-align: right;
+}
+
+.industry-console > strong small {
+  margin-top: 2px;
+  font-size: 0.5rem;
+}
+
+.industry-console > .progress,
+.industry-console > p {
+  grid-column: 1 / -1;
+}
+
+.industry-console > .progress {
+  height: 6px;
+}
+
+.industry-console > p {
+  margin: -2px 0 0;
+  color: var(--muted-2);
+  font-size: 0.66rem;
+}
+
+.industry-materials {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.industry-material {
+  display: grid;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(126, 240, 233, 0.14);
+  border-top: 2px solid var(--material-color, var(--cyan));
+  border-radius: 4px;
+  background: rgba(9, 28, 33, 0.76);
+}
+
+.industry-material--gears { --material-color: #e5a84d; }
+.industry-material--alloy { --material-color: #7dcbb2; }
+.industry-material--prism { --material-color: #c9b9ff; }
+
+.industry-material small {
+  overflow: hidden;
+  color: var(--muted-2);
+  font-size: 0.52rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.industry-material strong {
+  color: var(--material-color);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.94rem;
+}
+
+.industry-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.industry-heading > span {
+  color: #ffd38b;
+}
+
+.industry-heading > small {
+  overflow: hidden;
+  color: var(--muted-2);
+  font-size: 0.53rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doctrine-selector {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.doctrine-selector button {
+  display: grid;
+  min-width: 0;
+  min-height: 96px;
+  padding: 8px 6px;
+  border: 1px solid rgba(126, 240, 233, 0.14);
+  border-radius: 5px;
+  place-items: center;
+  align-content: center;
+  background: rgba(9, 29, 34, 0.74);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.doctrine-selector button:hover:not(:disabled),
+.doctrine-selector button.is-active {
+  border-color: rgba(255, 189, 85, 0.55);
+  background: rgba(255, 189, 85, 0.08);
+  color: var(--amber-soft);
+}
+
+.doctrine-selector button.is-active {
+  box-shadow: inset 0 -2px var(--amber);
+}
+
+.doctrine-selector button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.doctrine-selector svg {
+  width: 20px;
+}
+
+.doctrine-selector strong {
+  margin-top: 4px;
+  font-size: 0.68rem;
+}
+
+.doctrine-selector small {
+  margin-top: 3px;
+  color: var(--muted-2);
+  font-size: 0.48rem;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.recipe-list,
+.industry-module-list {
+  display: grid;
+  gap: 6px;
+}
+
+.recipe-row {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) 68px;
+  min-height: 82px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(126, 240, 233, 0.13);
+  border-left: 2px solid var(--recipe-color, var(--cyan));
+  border-radius: 5px;
+  background: rgba(10, 29, 34, 0.68);
+}
+
+.recipe-row--gears { --recipe-color: #e5a84d; }
+.recipe-row--alloy { --recipe-color: #7dcbb2; }
+.recipe-row--prism { --recipe-color: #c9b9ff; }
+
+.recipe-row.is-running {
+  background: rgba(255, 189, 85, 0.075);
+}
+
+.recipe-row__output {
+  display: grid;
+  min-width: 0;
+  color: var(--recipe-color);
+  text-align: center;
+}
+
+.recipe-row__output strong {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 1rem;
+}
+
+.recipe-row__output small {
+  overflow: hidden;
+  font-size: 0.48rem;
+  text-overflow: ellipsis;
+}
+
+.recipe-row__copy {
+  min-width: 0;
+}
+
+.recipe-row__copy > strong {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 0.72rem;
+}
+
+.recipe-row__copy > strong small {
+  color: var(--recipe-color);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.52rem;
+}
+
+.recipe-row__copy p {
+  margin: 3px 0 5px;
+  color: var(--muted-2);
+  font-size: 0.56rem;
+  line-height: 1.25;
+}
+
+.recipe-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 7px;
+}
+
+.recipe-inputs small {
+  color: #b87670;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.48rem;
+}
+
+.recipe-inputs small.is-ready {
+  color: #78cda8;
+}
+
+.recipe-row > button {
+  display: grid;
+  min-width: 0;
+  min-height: 50px;
+  padding: 5px;
+  border: 1px solid rgba(255, 189, 85, 0.36);
+  border-radius: 4px;
+  place-items: center;
+  background: rgba(255, 189, 85, 0.09);
+  color: var(--amber-soft);
+  cursor: pointer;
+}
+
+.recipe-row > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.recipe-row > button svg {
+  width: 17px;
+}
+
+.recipe-row > button span {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.5rem;
+  font-weight: 800;
+}
+
+.industry-module {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 42px;
+  min-height: 68px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(126, 240, 233, 0.13);
+  border-radius: 5px;
+  background: rgba(9, 29, 34, 0.68);
+}
+
+.industry-module > span {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 189, 85, 0.24);
+  border-radius: 4px;
+  place-items: center;
+  color: var(--amber);
+}
+
+.industry-module > span svg {
+  width: 18px;
+}
+
+.industry-module > div {
+  display: grid;
+  min-width: 0;
+}
+
+.industry-module > div strong {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 0.7rem;
+}
+
+.industry-module > div strong b,
+.industry-module > div em {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.5rem;
+  font-style: normal;
+}
+
+.industry-module > div strong b {
+  color: var(--amber-soft);
+  white-space: nowrap;
+}
+
+.industry-module > div small {
+  margin-top: 2px;
+  color: var(--muted-2);
+  font-size: 0.55rem;
+}
+
+.industry-module > div em {
+  margin-top: 4px;
+  color: #d7c290;
+}
+
+.industry-module > button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(255, 189, 85, 0.35);
+  border-radius: 4px;
+  place-items: center;
+  background: rgba(255, 189, 85, 0.08);
+  color: var(--amber-soft);
+  cursor: pointer;
+}
+
+.industry-module > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.industry-module > button svg {
+  width: 17px;
+}
+
+.industry-module.is-complete {
+  border-color: rgba(101, 214, 161, 0.28);
 }
 
 .goal-list {

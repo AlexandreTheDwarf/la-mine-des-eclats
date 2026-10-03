@@ -60,6 +60,12 @@ import {
 import {
   GOALS,
   CONTRACT_UNLOCK_DEPTH,
+  INDUSTRY_DOCTRINES,
+  INDUSTRY_DOCTRINE_SWITCH_COST,
+  INDUSTRY_MATERIALS,
+  INDUSTRY_MODULES,
+  INDUSTRY_RECIPES,
+  INDUSTRY_UNLOCK_EXPEDITIONS,
   LEGACIES,
   MACHINES,
   MAX_ORE_STUDY_LEVEL,
@@ -82,6 +88,10 @@ import {
   gameReducer,
   getDerivedStats,
   inventoryCount,
+  industryModuleCost,
+  industryModuleReady,
+  industryRecipeReady,
+  industryUnlocked,
   loadGame,
   legacyCost,
   machineCost,
@@ -102,6 +112,9 @@ import {
   veinsPerMeterFor,
   zoneForDepth,
   type GameState,
+  type IndustryDoctrineId,
+  type IndustryMaterialId,
+  type IndustryModuleId,
   type LegacyId,
   type MachineId,
   type OreId,
@@ -109,7 +122,7 @@ import {
   type UpgradeId,
 } from "./game";
 
-type PanelTab = "upgrades" | "machines" | "forge" | "contracts" | "research" | "goals" | "expedition";
+type PanelTab = "upgrades" | "machines" | "forge" | "contracts" | "research" | "industry" | "goals" | "expedition";
 
 interface HitEffect {
   id: number;
@@ -122,7 +135,7 @@ interface HitEffect {
 
 interface GameNotice {
   id: string;
-  kind: "unlock" | "goal" | "contract" | "research";
+  kind: "unlock" | "goal" | "contract" | "research" | "industry";
   name: string;
   detail: string;
   machineId?: MachineId;
@@ -160,12 +173,25 @@ const researchIcons: Record<ResearchId, LucideIcon> = {
   commerce: CircleDollarSign,
 };
 
+const industryDoctrineIcons: Record<IndustryDoctrineId, LucideIcon> = {
+  extraction: Pickaxe,
+  commerce: CircleDollarSign,
+  resonance: Radio,
+};
+
+const industryModuleIcons: Record<IndustryModuleId, LucideIcon> = {
+  press: Factory,
+  logistics: Truck,
+  stabilizer: Gauge,
+};
+
 const tabDefinitions: Array<{ id: PanelTab; label: string; icon: LucideIcon }> = [
   { id: "upgrades", label: "Améliorer", icon: Zap },
   { id: "machines", label: "Machines", icon: Bot },
   { id: "forge", label: "Forge", icon: Hammer },
   { id: "contracts", label: "Contrats", icon: ClipboardList },
   { id: "research", label: "Labo", icon: FlaskConical },
+  { id: "industry", label: "Industrie", icon: Factory },
   { id: "goals", label: "Objectifs", icon: Trophy },
   { id: "expedition", label: "Cycles", icon: Compass },
 ];
@@ -184,9 +210,9 @@ function NoticeStack({
   return (
     <div className="notice-stack" aria-live="polite" aria-label="Nouveautés de la mine">
       {notices.slice(0, 2).map((notice) => {
-        const Icon = notice.kind === "contract" ? Handshake : notice.kind === "research" ? FlaskConical : notice.machineId ? machineIcons[notice.machineId] : Trophy;
-        const eyebrow = notice.kind === "unlock" ? "NOUVEAU PLAN DÉBLOQUÉ" : notice.kind === "contract" ? "NOUVEAU RÉSEAU" : notice.kind === "research" ? "NOUVELLE AILE" : "OBJECTIF ATTEINT";
-        const actionLabel = notice.kind === "unlock" ? "ATELIER" : notice.kind === "contract" ? "CONTRATS" : notice.kind === "research" ? "LABO" : "OBJECTIFS";
+        const Icon = notice.kind === "contract" ? Handshake : notice.kind === "research" ? FlaskConical : notice.kind === "industry" ? Factory : notice.machineId ? machineIcons[notice.machineId] : Trophy;
+        const eyebrow = notice.kind === "unlock" ? "NOUVEAU PLAN DÉBLOQUÉ" : notice.kind === "contract" ? "NOUVEAU RÉSEAU" : notice.kind === "research" ? "NOUVELLE AILE" : notice.kind === "industry" ? "NOUVEAU COMPLEXE" : "OBJECTIF ATTEINT";
+        const actionLabel = notice.kind === "unlock" ? "ATELIER" : notice.kind === "contract" ? "CONTRATS" : notice.kind === "research" ? "LABO" : notice.kind === "industry" ? "INDUSTRIE" : "OBJECTIFS";
         return (
           <article className={`game-notice game-notice--${notice.kind}`} key={notice.id}>
             <span className="game-notice__icon"><Icon aria-hidden="true" /></span>
@@ -893,6 +919,138 @@ function ResearchPanel({ state, dispatch }: { state: GameState; dispatch: React.
   );
 }
 
+function IndustryPanel({ state, dispatch }: { state: GameState; dispatch: React.Dispatch<Parameters<typeof gameReducer>[1]> }) {
+  if (!industryUnlocked(state)) {
+    return (
+      <div className="industry-lock">
+        <Factory aria-hidden="true" />
+        <small>COMPLEXE INDUSTRIEL HORS LIGNE</small>
+        <h3>La première remontée rapportera les plans nécessaires.</h3>
+        <ProgressBar value={(state.expeditions / INDUSTRY_UNLOCK_EXPEDITIONS) * 100} label="Déblocage du complexe industriel" tone="amber" />
+        <strong>{state.expeditions} / {INDUSTRY_UNLOCK_EXPEDITIONS} expédition</strong>
+      </div>
+    );
+  }
+
+  const activeRecipe = state.productionJob
+    ? INDUSTRY_RECIPES.find((recipe) => recipe.id === state.productionJob?.recipeId) ?? null
+    : null;
+  const switchCost = state.industryDoctrine ? INDUSTRY_DOCTRINE_SWITCH_COST : 0;
+
+  return (
+    <div className="industry-panel">
+      <section className={`industry-console${activeRecipe ? " is-running" : ""}`}>
+        <span><Factory aria-hidden="true" /></span>
+        <div>
+          <small>RÉSEAU INDUSTRIEL</small>
+          <h3>{activeRecipe ? activeRecipe.name : "Chaîne disponible"}</h3>
+        </div>
+        <strong>{state.completedBatches}<small>lots achevés</small></strong>
+        <ProgressBar
+          value={state.productionJob ? ((state.productionJob.duration - state.productionJob.remaining) / state.productionJob.duration) * 100 : 0}
+          label="Progression de la production"
+          tone={activeRecipe ? "amber" : "cyan"}
+        />
+        <p>{activeRecipe ? `${formatDuration(Math.ceil(state.productionJob?.remaining ?? 0))} avant la sortie du lot.` : "Aucun ordre en cours. Les chaînes attendent leurs minerais."}</p>
+      </section>
+
+      <div className="industry-materials" aria-label="Stock industriel">
+        {(Object.keys(INDUSTRY_MATERIALS) as IndustryMaterialId[]).map((id) => (
+          <span className={`industry-material industry-material--${id}`} key={id}>
+            <small>{INDUSTRY_MATERIALS[id].shortName}</small>
+            <strong>{formatNumber(state.industryMaterials[id])}</strong>
+          </span>
+        ))}
+      </div>
+
+      <div className="industry-heading">
+        <span>DOCTRINE DE PRODUCTION</span>
+        <small>{state.industryDoctrine ? `Changer : ${switchCost} échos` : "Premier choix gratuit"}</small>
+      </div>
+      <div className="doctrine-selector">
+        {INDUSTRY_DOCTRINES.map((doctrine) => {
+          const Icon = industryDoctrineIcons[doctrine.id];
+          const active = state.industryDoctrine === doctrine.id;
+          return (
+            <button
+              className={active ? "is-active" : ""}
+              type="button"
+              disabled={!active && state.echoes < switchCost}
+              onClick={() => dispatch({ type: "SELECT_INDUSTRY_DOCTRINE", id: doctrine.id })}
+              aria-pressed={active}
+              key={doctrine.id}
+            >
+              <Icon aria-hidden="true" />
+              <strong>{doctrine.name}</strong>
+              <small>{doctrine.description}</small>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="industry-heading">
+        <span>ORDRES DE FABRICATION</span>
+        <small>Un seul lot à la fois</small>
+      </div>
+      <div className="recipe-list">
+        {INDUSTRY_RECIPES.map((recipe) => {
+          const ready = industryRecipeReady(state, recipe);
+          const running = state.productionJob?.recipeId === recipe.id;
+          return (
+            <article className={`recipe-row recipe-row--${recipe.id}${running ? " is-running" : ""}`} key={recipe.id}>
+              <span className="recipe-row__output"><strong>+{recipe.output}</strong><small>{INDUSTRY_MATERIALS[recipe.id].shortName}</small></span>
+              <div className="recipe-row__copy">
+                <strong>{recipe.name}<small>{formatDuration(recipe.duration)}</small></strong>
+                <p>{recipe.description}</p>
+                <span className="recipe-inputs">
+                  {Object.entries(recipe.inputs).map(([id, amount]) => (
+                    <small className={state.inventory[id as OreId] >= (amount ?? 0) ? "is-ready" : ""} key={id}>
+                      {ORES[id as OreId].shortName} {formatNumber(state.inventory[id as OreId])}/{formatNumber(amount ?? 0)}
+                    </small>
+                  ))}
+                </span>
+              </div>
+              <button type="button" disabled={!ready} onClick={() => dispatch({ type: "START_INDUSTRY_RECIPE", id: recipe.id })}>
+                {running ? <RefreshCw aria-hidden="true" /> : <Factory aria-hidden="true" />}
+                <span>{running ? "EN COURS" : "LANCER"}</span>
+              </button>
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="industry-heading">
+        <span>MODULES PERMANENTS</span>
+        <small>Conservés entre les cycles</small>
+      </div>
+      <div className="industry-module-list">
+        {INDUSTRY_MODULES.map((module) => {
+          const level = state.industryModules[module.id];
+          const cost = industryModuleCost(module, level);
+          const maxed = level >= module.max;
+          const ready = industryModuleReady(state, module);
+          const Icon = industryModuleIcons[module.id];
+          return (
+            <div className={`industry-module${maxed ? " is-complete" : ""}`} key={module.id}>
+              <span><Icon aria-hidden="true" /></span>
+              <div>
+                <strong>{module.name}<b>Niv. {level}/{module.max}</b></strong>
+                <small>{maxed ? "Module entièrement déployé" : module.description}</small>
+                {!maxed && (
+                  <em>{Object.entries(cost).map(([id, amount]) => `${amount} ${INDUSTRY_MATERIALS[id as IndustryMaterialId].shortName.toLowerCase()}`).join(" · ")}</em>
+                )}
+              </div>
+              <button type="button" disabled={!ready} onClick={() => dispatch({ type: "BUY_INDUSTRY_MODULE", id: module.id })}>
+                {maxed ? <Check aria-hidden="true" /> : <Wrench aria-hidden="true" />}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function GoalsPanel({ state, dispatch }: { state: GameState; dispatch: React.Dispatch<Parameters<typeof gameReducer>[1]> }) {
   return (
     <div className="goal-list">
@@ -1146,16 +1304,17 @@ function CommandPanel({
       <div className="command-panel__body">
         <div className="panel-heading panel-heading--command">
           <div>
-            <span>{activeTab === "contracts" ? "COMPAGNIE MINIÈRE" : activeTab === "research" ? "LABORATOIRE D'ÉCHOS" : "ATELIER MOBILE"}</span>
+            <span>{activeTab === "contracts" ? "COMPAGNIE MINIÈRE" : activeTab === "research" ? "LABORATOIRE D'ÉCHOS" : activeTab === "industry" ? "COMPLEXE SOUTERRAIN" : "ATELIER MOBILE"}</span>
             <h2>{tabDefinitions.find((tab) => tab.id === activeTab)?.label}</h2>
           </div>
-          {activeTab === "contracts" ? <Handshake aria-hidden="true" /> : activeTab === "research" ? <FlaskConical aria-hidden="true" /> : <HardHat aria-hidden="true" />}
+          {activeTab === "contracts" ? <Handshake aria-hidden="true" /> : activeTab === "research" ? <FlaskConical aria-hidden="true" /> : activeTab === "industry" ? <Factory aria-hidden="true" /> : <HardHat aria-hidden="true" />}
         </div>
         {activeTab === "upgrades" && <UpgradeList state={state} dispatch={dispatch} />}
         {activeTab === "machines" && <MachineList state={state} dispatch={dispatch} />}
         {activeTab === "forge" && <ForgePanel state={state} dispatch={dispatch} />}
         {activeTab === "contracts" && <ContractPanel state={state} dispatch={dispatch} />}
         {activeTab === "research" && <ResearchPanel state={state} dispatch={dispatch} />}
+        {activeTab === "industry" && <IndustryPanel state={state} dispatch={dispatch} />}
         {activeTab === "goals" && <GoalsPanel state={state} dispatch={dispatch} />}
         {activeTab === "expedition" && <ExpeditionPanel state={state} dispatch={dispatch} />}
       </div>
@@ -1255,7 +1414,7 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>VERSION 0.6.1 · PROFONDEUR MOBILE</small><h2 id="settings-title">Sauvegarde</h2></div>
+          <div><small>BRANCHE TEST · VERSION 0.7.0</small><h2 id="settings-title">Sauvegarde</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
@@ -1331,6 +1490,7 @@ export default function App() {
   const pointerRef = useRef({ x: 50, y: 46 });
   const lastEffectId = useRef(state.impact.id);
   const previousMaxDepth = useRef(state.maxDepth);
+  const previousExpeditions = useRef(state.expeditions);
   const reachedGoals = useRef(new Set(
     GOALS
       .filter((goal) => goal.progress(state) >= goal.target || state.claimedGoals.includes(goal.id))
@@ -1401,6 +1561,19 @@ export default function App() {
   }, [queueNotices, state.maxDepth]);
 
   useEffect(() => {
+    const previous = previousExpeditions.current;
+    if (previous < INDUSTRY_UNLOCK_EXPEDITIONS && state.expeditions >= INDUSTRY_UNLOCK_EXPEDITIONS) {
+      queueNotices([{
+        id: `unlock-industry-${state.expeditions}`,
+        kind: "industry",
+        name: "Le Complexe souterrain",
+        detail: "Les minerais peuvent maintenant alimenter des chaînes de production permanentes.",
+      }]);
+    }
+    previousExpeditions.current = state.expeditions;
+  }, [queueNotices, state.expeditions]);
+
+  useEffect(() => {
     const newlyReached: GameNotice[] = [];
     GOALS.forEach((goal) => {
       const complete = goal.progress(state) >= goal.target;
@@ -1455,7 +1628,7 @@ export default function App() {
   };
 
   const openNotice = (notice: GameNotice) => {
-    setActiveTab(notice.kind === "unlock" ? "machines" : notice.kind === "contract" ? "contracts" : notice.kind === "research" ? "research" : "goals");
+    setActiveTab(notice.kind === "unlock" ? "machines" : notice.kind === "contract" ? "contracts" : notice.kind === "research" ? "research" : notice.kind === "industry" ? "industry" : "goals");
     setNotices((current) => current.filter((item) => item.id !== notice.id));
     window.setTimeout(() => document.querySelector(".command-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };

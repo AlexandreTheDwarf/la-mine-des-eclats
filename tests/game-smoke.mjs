@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import {
   CONTRACT_OFFER_COUNT,
   CONTRACT_UNLOCK_DEPTH,
+  INDUSTRY_DOCTRINE_SWITCH_COST,
+  INDUSTRY_MODULES,
+  INDUSTRY_RECIPES,
   LEGACIES,
   MARKET_PERIOD_MS,
   ORE_ORDER,
@@ -20,6 +23,8 @@ import {
   gameReducer,
   getDerivedStats,
   inventoryCount,
+  industryModuleCost,
+  industryUnlocked,
   marketQuoteAt,
   oreStudyCost,
   oreStudyReward,
@@ -123,6 +128,47 @@ researchState = gameReducer(researchState, { type: "BUY_RESEARCH", id: "impact" 
 assert.equal(researchState.research.impact, 1, "buying a protocol should advance its level");
 assert.ok(getDerivedStats(researchState).clickDamage > researchDamage, "impact research should improve manual damage");
 
+assert.equal(industryUnlocked(createInitialState()), false, "industry should stay locked before the first expedition");
+let industryState = {
+  ...createInitialState(),
+  expeditions: 1,
+  echoes: 10,
+  inventory: { ...createInitialState().inventory, stone: 90, copper: 28 },
+};
+assert.equal(industryUnlocked(industryState), true, "the first expedition should unlock industry");
+industryState = gameReducer(industryState, { type: "SELECT_INDUSTRY_DOCTRINE", id: "extraction" });
+assert.equal(industryState.industryDoctrine, "extraction", "the first doctrine should be free");
+assert.equal(industryState.echoes, 10, "choosing a first doctrine should not consume echoes");
+industryState = gameReducer(industryState, { type: "SELECT_INDUSTRY_DOCTRINE", id: "commerce" });
+assert.equal(industryState.industryDoctrine, "commerce", "a doctrine should remain changeable");
+assert.equal(industryState.echoes, 10 - INDUSTRY_DOCTRINE_SWITCH_COST, "changing doctrine should consume echoes");
+
+const gearsRecipe = INDUSTRY_RECIPES.find((recipe) => recipe.id === "gears");
+assert.ok(gearsRecipe, "the gallery gear recipe should exist");
+industryState = gameReducer(industryState, { type: "START_INDUSTRY_RECIPE", id: "gears" });
+assert.equal(industryState.inventory.stone, 0, "starting a batch should consume its stone");
+assert.equal(industryState.inventory.copper, 0, "starting a batch should consume its copper");
+assert.equal(industryState.productionJob?.recipeId, "gears", "the selected recipe should enter production");
+industryState = gameReducer(industryState, { type: "TICK", seconds: gearsRecipe.duration - 1 });
+assert.equal(industryState.industryMaterials.gears, 0, "an unfinished batch should not grant components");
+industryState = gameReducer(industryState, { type: "TICK", seconds: 1 });
+assert.equal(industryState.industryMaterials.gears, gearsRecipe.output, "a completed batch should grant its components");
+assert.equal(industryState.completedBatches, 1, "completed batches should feed industrial objectives");
+assert.equal(industryState.productionJob, null, "the production line should become available after completion");
+
+const pressModule = INDUSTRY_MODULES.find((module) => module.id === "press");
+assert.ok(pressModule, "the telluric press should exist");
+const pressCost = industryModuleCost(pressModule, 0);
+industryState = {
+  ...industryState,
+  machines: { ...industryState.machines, drill: 1 },
+  industryMaterials: { gears: pressCost.gears ?? 0, alloy: pressCost.alloy ?? 0, prism: pressCost.prism ?? 0 },
+};
+const autoBeforePress = getDerivedStats(industryState).autoDamage;
+industryState = gameReducer(industryState, { type: "BUY_INDUSTRY_MODULE", id: "press" });
+assert.equal(industryState.industryModules.press, 1, "buying an industrial module should advance its level");
+assert.ok(getDerivedStats(industryState).autoDamage > autoBeforePress, "the telluric press should boost automation");
+
 assert.equal(
   expectedOreYield(22, 2),
   expectedOreYield(22, 1) * 2,
@@ -201,6 +247,10 @@ let cappedState = {
   analysesCompleted: 3,
   oreStudies: { ...createInitialState().oreStudies, stone: 2 },
   research: { ...createInitialState().research, impact: 1 },
+  industryMaterials: { gears: 4, alloy: 2, prism: 1 },
+  industryDoctrine: "resonance",
+  industryModules: { press: 1, logistics: 1, stabilizer: 0 },
+  completedBatches: 7,
 };
 cappedState = gameReducer(cappedState, { type: "STRIKE" });
 assert.equal(cappedState.depth, 120, "the first expedition should stop at its 120 metre beacon");
@@ -228,6 +278,10 @@ assert.equal(cycledState.researchPoints, 19, "unused research data should surviv
 assert.equal(cycledState.analysesCompleted, 3, "the analysis record should survive a new cycle");
 assert.equal(cycledState.oreStudies.stone, 2, "the mineral codex should survive a new cycle");
 assert.equal(cycledState.research.impact, 1, "research protocols should survive a new cycle");
+assert.deepEqual(cycledState.industryMaterials, { gears: 4, alloy: 2, prism: 1 }, "industrial components should survive a new cycle");
+assert.equal(cycledState.industryDoctrine, "resonance", "the industrial doctrine should survive a new cycle");
+assert.equal(cycledState.industryModules.press, 1, "industrial modules should survive a new cycle");
+assert.equal(cycledState.completedBatches, 7, "industrial production records should survive a new cycle");
 
 cycledState = { ...cycledState, toolTier: 1 };
 const legacyDamage = getDerivedStats(cycledState).clickDamage;
@@ -237,10 +291,12 @@ assert.ok(getDerivedStats(cycledState).clickDamage > legacyDamage, "a permanent 
 
 const oldSave = Buffer.from(JSON.stringify({ version: 4, depth: 60, selectedZoneId: 2, rockHp: 10, rockMaxHp: 10 }), "utf8").toString("base64");
 const migratedSave = decodeSave(oldSave);
-assert.equal(migratedSave.version, 7, "old saves should migrate to the Laboratory campaign");
+assert.equal(migratedSave.version, 8, "old saves should migrate to the Industrial campaign");
 assert.equal(migratedSave.maxDepth, 60, "old saves should preserve their depth as a permanent record");
 assert.equal(migratedSave.inventory.dawn, 0, "old saves should receive the new ore slots");
 assert.equal(migratedSave.researchPoints, 0, "old saves should receive the research resource");
 assert.equal(migratedSave.research.impact, 0, "old saves should receive empty research protocols");
+assert.deepEqual(migratedSave.industryMaterials, { gears: 0, alloy: 0, prism: 0 }, "old saves should receive empty industrial stores");
+assert.equal(migratedSave.productionJob, null, "old saves should start without an industrial order");
 
-console.log("OK: mining, market sales, Company contracts, Laboratory research, galleries, legacies and expedition cycles.");
+console.log("OK: mining, market sales, Company contracts, Laboratory research, industry, galleries, legacies and expedition cycles.");

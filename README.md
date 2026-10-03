@@ -2,6 +2,15 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
+## Branche de préparation 0.7.0 - Le Complexe
+
+- complexe industriel débloqué après la première expédition ;
+- trois chaînes transformant les anciens minerais en composants persistants ;
+- doctrines Rendement, Consortium et Harmoniques qui spécialisent chaque partie ;
+- quinze niveaux de modules industriels répartis entre automatisation, extraction, commerce et durabilité ;
+- productions actives pendant l'absence et conservées entre les cycles ;
+- trois nouveaux objectifs industriels et migration automatique des sauvegardes 0.6.1.
+
 ## Version 0.6.1 - Profondeur mobile
 
 - profondeur actuelle et prochaine balise toujours visibles sur téléphone ;
