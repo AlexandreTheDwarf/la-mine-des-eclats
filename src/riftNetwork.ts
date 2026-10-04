@@ -7,6 +7,7 @@
  */
 
 import { grandWorkStages, type GrandWorkLevels } from "./grandWorks.ts";
+import type { CrewId } from "./crew.ts";
 
 export type RiftRouteId = "lanterns" | "magnet" | "emberSpine" | "whispers" | "glassArc";
 export type RiftApproachId = "swift" | "survey" | "salvage";
@@ -56,6 +57,7 @@ export interface RiftExpeditionRewards {
 export interface RiftExpeditionJob {
   routeId: RiftRouteId;
   approachId: RiftApproachId;
+  crewId: CrewId;
   duration: number;
   remaining: number;
 }
@@ -64,6 +66,8 @@ export interface RiftReport {
   id: number;
   routeId: RiftRouteId;
   approachId: RiftApproachId;
+  crewId: CrewId;
+  crewXp: number;
   rewards: RiftExpeditionRewards;
   completedAt: number;
 }

@@ -32,6 +32,24 @@ import {
   type RiftRouteCompletions,
   type RiftRouteId,
 } from "./riftNetwork.ts";
+import {
+  CREW,
+  addCrewFatigue,
+  crewAdjustedCost,
+  crewAdjustedDuration,
+  crewAdjustedRewards,
+  crewById,
+  crewLevel,
+  crewUnlocked,
+  crewXpForRoute,
+  emptyCrewFatigue,
+  emptyCrewXp,
+  recoverCrewFatigue,
+  totalCrewLevels,
+  type CrewFatigue,
+  type CrewId,
+  type CrewXp,
+} from "./crew.ts";
 
 export type OreId =
   | "stone"
@@ -204,7 +222,7 @@ export interface TradeRecord {
 }
 
 export interface GameState {
-  version: 10;
+  version: 11;
   shards: number;
   coins: number;
   echoes: number;
@@ -253,6 +271,9 @@ export interface GameState {
   riftRouteCompletions: RiftRouteCompletions;
   riftExpeditionsCompleted: number;
   riftReports: RiftReport[];
+  selectedCrewId: CrewId;
+  crewXp: CrewXp;
+  crewFatigue: CrewFatigue;
   claimedGoals: string[];
   journal: JournalEntry[];
   activeEvent: MineEvent | null;
@@ -282,6 +303,7 @@ export type GameAction =
   | { type: "STABILIZE_NETWORK" }
   | { type: "SELECT_RIFT_ROUTE"; id: RiftRouteId }
   | { type: "SELECT_RIFT_APPROACH"; id: RiftApproachId }
+  | { type: "SELECT_CREW"; id: CrewId }
   | { type: "START_RIFT_EXPEDITION" }
   | { type: "BUY_UPGRADE"; id: UpgradeId }
   | { type: "BUY_MACHINE"; id: MachineId }
@@ -586,6 +608,9 @@ export const GOALS: GoalDefinition[] = [
   { id: "first-rift", name: "Hors des cartes", description: "Achever une expédition de faille", target: 1, progress: (s) => s.riftExpeditionsCompleted, reward: { echoes: 5, research: 10 } },
   { id: "rift-cartographer", name: "Le réseau apparaît", description: "Réunir 20 données cartographiques", target: 20, progress: (s) => s.surveyData, reward: { echoes: 12, research: 25 } },
   { id: "rift-veteran", name: "Toujours une route", description: "Achever 12 expéditions de faille", target: 12, progress: (s) => s.riftExpeditionsCompleted, reward: { echoes: 25, coins: 1_000_000_000 } },
+  { id: "crew-apprentice", name: "Premiers galons", description: "Former un membre au niveau 2", target: 2, progress: (s) => Math.max(...CREW.map((member) => crewLevel(s.crewXp[member.id]))), reward: { echoes: 5, research: 8 } },
+  { id: "crew-veteran", name: "Guide des failles", description: "Former un membre au niveau 5", target: 5, progress: (s) => Math.max(...CREW.map((member) => crewLevel(s.crewXp[member.id]))), reward: { echoes: 18, research: 20 } },
+  { id: "crew-company", name: "Équipe de nuit", description: "Cumuler 18 niveaux d'équipage", target: 18, progress: (s) => totalCrewLevels(s.crewXp), reward: { echoes: 30, coins: 1_500_000_000 } },
 ];
 
 export interface DerivedStats {
@@ -676,7 +701,7 @@ export function rockNameFor(state: GameState): string {
 export function createInitialState(): GameState {
   const rockMaxHp = rockMaxHpFor(1);
   return {
-    version: 10,
+    version: 11,
     shards: 0,
     coins: 0,
     echoes: 0,
@@ -721,6 +746,9 @@ export function createInitialState(): GameState {
     riftRouteCompletions: emptyRiftRouteCompletions(),
     riftExpeditionsCompleted: 0,
     riftReports: [],
+    selectedCrewId: "mica",
+    crewXp: emptyCrewXp(),
+    crewFatigue: emptyCrewFatigue(),
     claimedGoals: [],
     journal: [{ id: 1, text: "La première galerie attend. Trois silhouettes observent depuis les poutres.", tone: "normal" }],
     activeEvent: null,
@@ -747,6 +775,17 @@ function normalizeState(candidate: StoredGameState): GameState {
   const candidateIndustryMaterials = { ...base.industryMaterials, ...(candidate.industryMaterials ?? {}) };
   const candidateIndustryModules = { ...base.industryModules, ...(candidate.industryModules ?? {}) };
   const candidateGrandWorks = { ...base.grandWorks, ...(candidate.grandWorks ?? {}) };
+  const candidateCrewXp = { ...base.crewXp, ...(candidate.crewXp ?? {}) };
+  const candidateCrewFatigue = { ...base.crewFatigue, ...(candidate.crewFatigue ?? {}) };
+  const crewXp = Object.fromEntries(
+    CREW.map((member) => [member.id, Math.max(0, Math.floor(Number(candidateCrewXp[member.id]) || 0))]),
+  ) as CrewXp;
+  const crewFatigue = Object.fromEntries(
+    CREW.map((member) => [member.id, clamp(Number(candidateCrewFatigue[member.id]) || 0, 0, 100)]),
+  ) as CrewFatigue;
+  const selectedCrewId = CREW.some((member) => member.id === candidate.selectedCrewId)
+    ? candidate.selectedCrewId ?? base.selectedCrewId
+    : base.selectedCrewId;
   const grandWorks = Object.fromEntries(
     GRAND_WORKS.map((definition) => [
       definition.id,
@@ -790,6 +829,9 @@ function normalizeState(candidate: StoredGameState): GameState {
     ? {
         routeId: rawRiftJob.routeId,
         approachId: rawRiftJob.approachId,
+        // v0.9.0 jobs predate named crews. Mica adopts those in-flight
+        // missions so their paid manifests and remaining time stay intact.
+        crewId: CREW.some((member) => member.id === rawRiftJob.crewId) ? rawRiftJob.crewId : "mica",
         duration: Math.max(1, Number(rawRiftJob.duration) || 1),
         remaining: Math.max(0, Number(rawRiftJob.remaining) || 0),
       }
@@ -803,7 +845,7 @@ function normalizeState(candidate: StoredGameState): GameState {
   const merged: GameState = {
     ...base,
     ...candidateWithoutLegacyJob,
-    version: 10,
+    version: 11,
     toolTier,
     inventory: { ...base.inventory, ...(candidate.inventory ?? {}) },
     upgrades: candidateUpgrades,
@@ -840,8 +882,16 @@ function normalizeState(candidate: StoredGameState): GameState {
       ? candidate.riftReports
           .filter((report) => RIFT_ROUTES.some((route) => route.id === report?.routeId)
             && RIFT_APPROACHES.some((approach) => approach.id === report?.approachId))
+          .map((report) => ({
+            ...report,
+            crewId: CREW.some((member) => member.id === report.crewId) ? report.crewId : "mica" as const,
+            crewXp: Math.max(0, Math.floor(Number(report.crewXp) || 0)),
+          }))
           .slice(0, 8)
       : [],
+    selectedCrewId,
+    crewXp,
+    crewFatigue,
     claimedGoals: Array.isArray(candidate.claimedGoals) ? candidate.claimedGoals : [],
     journal: Array.isArray(candidate.journal) && candidate.journal.length ? candidate.journal.slice(0, 12) : base.journal,
     activeEvent: null,
@@ -853,6 +903,7 @@ function normalizeState(candidate: StoredGameState): GameState {
   merged.durability = clamp(Number(merged.durability) || 0, 0, maxDurability);
   merged.depth = Math.max(1, Math.floor(Number(merged.depth) || 1));
   merged.maxDepth = Math.max(merged.depth, Math.floor(Number(candidate.maxDepth) || merged.depth));
+  if (!crewUnlocked(merged.maxDepth, crewById(merged.selectedCrewId))) merged.selectedCrewId = "mica";
   merged.strataProgress = clamp(
     Math.floor(Number(candidate.strataProgress) || 0),
     0,
@@ -899,7 +950,7 @@ export function loadGame(): GameState {
 
 function applyOfflineProgress(state: GameState): GameState {
   const elapsed = Math.min(28_800, Math.max(0, Math.floor((Date.now() - state.lastSavedAt) / 1_000)));
-  let next = progressRiftExpedition(progressIndustry(state, elapsed), elapsed);
+  let next = progressRiftAndCrew(progressIndustry(state, elapsed), elapsed);
   const stats = getDerivedStats(next);
   if (elapsed < 60 || stats.autoDamage <= 0) return next;
 
@@ -1424,12 +1475,21 @@ function progressRiftExpedition(state: GameState, seconds: number): GameState {
 
   const route = riftRouteById(job.routeId);
   const approach = riftApproachById(job.approachId);
+  const member = crewById(job.crewId);
   const previousCompletions = state.riftRouteCompletions[route.id];
-  const rewards = riftExpeditionRewards(route, approach, previousCompletions);
+  const rewards = crewAdjustedRewards(
+    riftExpeditionRewards(route, approach, previousCompletions),
+    member,
+    state.crewXp[member.id],
+    state.crewFatigue[member.id],
+  );
+  const earnedCrewXp = crewXpForRoute(route);
   const report: RiftReport = {
     id: Date.now() + state.riftExpeditionsCompleted,
     routeId: route.id,
     approachId: approach.id,
+    crewId: member.id,
+    crewXp: earnedCrewXp,
     rewards,
     completedAt: Date.now(),
   };
@@ -1441,6 +1501,8 @@ function progressRiftExpedition(state: GameState, seconds: number): GameState {
       echoes: state.echoes + rewards.echoes,
       researchPoints: state.researchPoints + rewards.research,
       surveyData: state.surveyData + rewards.survey,
+      crewXp: { ...state.crewXp, [member.id]: state.crewXp[member.id] + earnedCrewXp },
+      crewFatigue: { ...state.crewFatigue, [member.id]: addCrewFatigue(state.crewFatigue[member.id]) },
       activeRiftExpedition: null,
       riftRouteCompletions: {
         ...state.riftRouteCompletions,
@@ -1448,15 +1510,35 @@ function progressRiftExpedition(state: GameState, seconds: number): GameState {
       },
       riftExpeditionsCompleted: state.riftExpeditionsCompleted + 1,
       riftReports: [report, ...state.riftReports].slice(0, 8),
-      message: `EXPÉDITION REVENUE · ${route.name}, +${rewards.survey} données cartographiques.`,
+      message: `RETOUR DE ${member.name.toUpperCase()} · ${route.name}, +${rewards.survey} données cartographiques.`,
     },
-    `${route.name} cartographiée par l'équipe ${approach.name.toLowerCase()}.`,
+    `${member.name} revient de ${route.name} avec ${earnedCrewXp} points d'expérience.`,
     previousCompletions === 0 ? "rare" : "good",
   );
 }
 
+/**
+ * Rest and travel share the same elapsed time. A deployed member only starts
+ * recovering after their return; everyone left at the station rests for the
+ * full interval, including time simulated while the game was closed.
+ */
+function progressRiftAndCrew(state: GameState, seconds: number): GameState {
+  const activeJob = state.activeRiftExpedition;
+  const next = progressRiftExpedition(state, seconds);
+  if (seconds <= 0) return next;
+
+  const crewFatigue = { ...next.crewFatigue };
+  CREW.forEach((member) => {
+    const restSeconds = activeJob?.crewId === member.id
+      ? Math.max(0, seconds - activeJob.remaining)
+      : seconds;
+    crewFatigue[member.id] = recoverCrewFatigue(crewFatigue[member.id], restSeconds);
+  });
+  return { ...next, crewFatigue };
+}
+
 function tick(state: GameState, seconds: number): GameState {
-  let next = progressRiftExpedition(progressIndustry(ensureContractOffers(state), seconds), seconds);
+  let next = progressRiftAndCrew(progressIndustry(ensureContractOffers(state), seconds), seconds);
   const stats = getDerivedStats(next);
   if (stats.autoDamage <= 0 || next.activeEvent) return next;
 
@@ -1763,15 +1845,35 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       if (!RIFT_APPROACHES.some((approach) => approach.id === action.id)) return state;
       return { ...state, selectedRiftApproachId: action.id };
     }
+    case "SELECT_CREW": {
+      const member = crewById(action.id);
+      if (!crewUnlocked(state.maxDepth, member)) return state;
+      return {
+        ...state,
+        selectedCrewId: member.id,
+        message: `${member.name.toUpperCase()} · ${member.role.toLowerCase()} au prochain départ.`,
+      };
+    }
     case "START_RIFT_EXPEDITION": {
       if (!riftNetworkUnlocked(state.expeditions, state.grandWorks) || state.activeRiftExpedition) return state;
       const route = riftRouteById(state.selectedRiftRouteId);
       const approach = riftApproachById(state.selectedRiftApproachId);
+      const member = crewById(state.selectedCrewId);
       if (!riftRouteUnlocked(state.surveyData, route)) {
         return { ...state, message: `La route exige ${route.requiredSurvey} données cartographiques.` };
       }
+      if (!crewUnlocked(state.maxDepth, member)) {
+        return { ...state, selectedCrewId: "mica", message: "Cette spécialiste n'a pas encore rejoint la mine." };
+      }
 
-      const cost = riftExpeditionCost(route, state.riftRouteCompletions[route.id]);
+      const memberXp = state.crewXp[member.id];
+      const memberFatigue = state.crewFatigue[member.id];
+      const cost = crewAdjustedCost(
+        riftExpeditionCost(route, state.riftRouteCompletions[route.id]),
+        member,
+        memberXp,
+        memberFatigue,
+      );
       const hasMaterials = Object.entries(cost.materials)
         .every(([id, amount]) => state.industryMaterials[id as IndustryMaterialId] >= (amount ?? 0));
       if (state.shards < cost.shards || !hasMaterials) {
@@ -1782,7 +1884,12 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       Object.entries(cost.materials).forEach(([id, amount]) => {
         materials[id as IndustryMaterialId] -= amount ?? 0;
       });
-      const duration = riftExpeditionDuration(route, approach);
+      const duration = crewAdjustedDuration(
+        riftExpeditionDuration(route, approach),
+        member,
+        memberXp,
+        memberFatigue,
+      );
       return addJournal(
         {
           ...state,
@@ -1791,12 +1898,13 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
           activeRiftExpedition: {
             routeId: route.id,
             approachId: approach.id,
+            crewId: member.id,
             duration,
             remaining: duration,
           },
-          message: `DÉPART CONFIRMÉ · ${route.name}, retour dans ${formatDuration(duration)}.`,
+          message: `DÉPART CONFIRMÉ · ${member.name} vers ${route.name}, retour dans ${formatDuration(duration)}.`,
         },
-        `Une équipe quitte le réseau vers ${route.name}.`,
+        `${member.name} prend la tête de l'expédition vers ${route.name}.`,
         "rare",
       );
     }
@@ -1885,7 +1993,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const fresh = createInitialState();
       return {
         ...fresh,
-        version: 10,
+        version: 11,
         echoes: state.echoes + reward,
         maxDepth: Math.max(state.maxDepth, state.depth),
         expeditions: state.expeditions + 1,
@@ -1916,6 +2024,9 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         riftRouteCompletions: state.riftRouteCompletions,
         riftExpeditionsCompleted: state.riftExpeditionsCompleted,
         riftReports: state.riftReports,
+        selectedCrewId: state.selectedCrewId,
+        crewXp: state.crewXp,
+        crewFatigue: state.crewFatigue,
         claimedGoals: state.claimedGoals,
         soundOn: state.soundOn,
         impact: { ...fresh.impact, id: state.impact.id + 1 },

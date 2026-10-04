@@ -127,6 +127,7 @@ import { GrandWorksPanel } from "./GrandWorksPanel";
 import { GRAND_WORKS_UNLOCK_EXPEDITIONS, autoRepeatUnlocked } from "./grandWorks";
 import { RiftNetworkPanel } from "./RiftNetworkPanel";
 import { riftNetworkUnlocked, riftRouteById } from "./riftNetwork";
+import { CREW, crewById, crewLevel, crewUnlocked } from "./crew";
 
 type PanelTab = "upgrades" | "machines" | "forge" | "contracts" | "research" | "industry" | "works" | "rifts" | "goals" | "expedition";
 
@@ -381,15 +382,6 @@ function InventoryPanel({
     });
   };
 
-  const crew = [
-    { name: "Mica", role: "Repérage", unlocked: true },
-    { name: "Braise", role: "Forge", unlocked: state.maxDepth >= 25 },
-    { name: "Nova", role: "Noyau", unlocked: state.maxDepth >= 60 },
-    { name: "Opale", role: "Mémoire", unlocked: state.maxDepth >= 120 },
-    { name: "Silex", role: "Verrier", unlocked: state.maxDepth >= 220 },
-    { name: "Aurore", role: "Balise", unlocked: state.maxDepth >= 360 },
-  ];
-
   return (
     <aside className="inventory-panel">
       <div className="panel-heading">
@@ -510,15 +502,21 @@ function InventoryPanel({
           <Cat aria-hidden="true" />
         </div>
         <div className="crew-list">
-          {crew.map((member) => (
-            <div className={`crew-member${member.unlocked ? " is-active" : ""}`} key={member.name}>
-              <Cat aria-hidden="true" />
-              <span>
-                <strong>{member.unlocked ? member.name : "???"}</strong>
-                <small>{member.unlocked ? member.role : "Plus profond"}</small>
-              </span>
-            </div>
-          ))}
+          {CREW.map((member) => {
+            const unlocked = crewUnlocked(state.maxDepth, member);
+            const selected = state.selectedCrewId === member.id;
+            const deployed = state.activeRiftExpedition?.crewId === member.id;
+            return (
+              <div className={`crew-member${unlocked ? " is-active" : ""}${selected ? " is-selected" : ""}${deployed ? " is-deployed" : ""}`} key={member.id}>
+                <Cat aria-hidden="true" />
+                <span>
+                  <strong>{unlocked ? member.name : "???"}</strong>
+                  <small>{unlocked ? `${member.role} · Niv. ${crewLevel(state.crewXp[member.id])}` : `${member.unlockDepth} m`}</small>
+                </span>
+                {deployed && <em>MISSION</em>}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -1467,7 +1465,7 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>BRANCHE TEST · VERSION 0.9.0</small><h2 id="settings-title">Sauvegarde</h2></div>
+          <div><small>BRANCHE TEST · VERSION 0.9.1</small><h2 id="settings-title">Sauvegarde</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
@@ -1595,6 +1593,14 @@ export default function App() {
         detail: `${machine.description}. Disponible dans l’onglet Machines.`,
         machineId: machine.id,
       }));
+    CREW
+      .filter((member) => member.unlockDepth > 1 && oldMaxDepth < member.unlockDepth && state.maxDepth >= member.unlockDepth)
+      .forEach((member) => unlocked.push({
+        id: `unlock-crew-${member.id}-${state.maxDepth}`,
+        kind: "rift",
+        name: `${member.name} rejoint l'équipe`,
+        detail: `${member.role} · ${member.specialty}. Disponible pour les prochaines expéditions de faille.`,
+      }));
     if (oldMaxDepth < CONTRACT_UNLOCK_DEPTH && state.maxDepth >= CONTRACT_UNLOCK_DEPTH) {
       unlocked.push({
         id: `unlock-contracts-${state.maxDepth}`,
@@ -1655,11 +1661,12 @@ export default function App() {
     if (state.riftExpeditionsCompleted > previousRiftCompletions.current && state.riftReports[0]) {
       const report = state.riftReports[0];
       const route = riftRouteById(report.routeId);
+      const member = crewById(report.crewId);
       queueNotices([{
         id: `rift-return-${report.id}`,
         kind: "rift",
-        name: `${route.name} cartographiée`,
-        detail: `L'équipe rapporte ${report.rewards.survey} données et ${formatNumber(report.rewards.coins)} pièces.`,
+        name: `${member.name} revient de ${route.name}`,
+        detail: `+${report.crewXp} XP, ${report.rewards.survey} données et ${formatNumber(report.rewards.coins)} pièces.`,
       }]);
     }
     previousRiftCompletions.current = state.riftExpeditionsCompleted;

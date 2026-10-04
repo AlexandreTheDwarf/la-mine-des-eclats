@@ -2,6 +2,18 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
+## Branche de préparation 0.9.1 - L'Équipe de nuit
+
+- six spécialistes réellement affectables aux expéditions du Réseau des Failles ;
+- bonus distincts sur la durée, les composants, les éclats, les pièces, la cartographie ou les signaux ;
+- expérience individuelle sur cinq niveaux et trois nouveaux objectifs d'équipage ;
+- fatigue souple qui réduit légèrement les bonus sans jamais interdire un départ ;
+- repos automatique pendant le jeu et hors ligne, à l'exception du membre en mission ;
+- rapports nominatifs, états de forme et progression visibles avant chaque lancement ;
+- migration transparente des sauvegardes et des expéditions déjà parties en 0.9.0.
+
+Cette version vit sur la branche `feature/v0.9.1-equipage` et ne doit pas être fusionnée dans `main` avant validation.
+
 ## Branche de préparation 0.9.0 - Le Réseau des Failles
 
 - station cartographique débloquée après trois cycles et huit paliers de Grands Travaux ;

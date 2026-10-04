@@ -1,4 +1,5 @@
 import {
+  BatteryMedium,
   Check,
   CircleDotDashed,
   Clock3,
@@ -12,6 +13,7 @@ import {
   Route,
   Send,
   Sparkles,
+  UserRound,
 } from "lucide-react";
 import type { Dispatch } from "react";
 import {
@@ -23,6 +25,17 @@ import {
   type IndustryMaterialId,
 } from "./game";
 import { grandWorkStages } from "./grandWorks";
+import {
+  CREW,
+  crewAdjustedCost,
+  crewAdjustedDuration,
+  crewAdjustedRewards,
+  crewBonusLabel,
+  crewById,
+  crewLevel,
+  crewNextLevelXp,
+  crewUnlocked,
+} from "./crew";
 import {
   RIFT_APPROACHES,
   RIFT_ROUTES,
@@ -80,17 +93,37 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
 
   const selectedRoute = riftRouteById(state.selectedRiftRouteId);
   const selectedApproach = riftApproachById(state.selectedRiftApproachId);
+  const selectedCrew = crewById(state.selectedCrewId);
+  const selectedCrewXp = state.crewXp[selectedCrew.id];
+  const selectedCrewFatigue = state.crewFatigue[selectedCrew.id];
   const selectedCompletions = state.riftRouteCompletions[selectedRoute.id];
   const selectedUnlocked = riftRouteUnlocked(state.surveyData, selectedRoute);
-  const selectedCost = riftExpeditionCost(selectedRoute, selectedCompletions);
-  const selectedRewards = riftExpeditionRewards(selectedRoute, selectedApproach, selectedCompletions);
-  const selectedDuration = riftExpeditionDuration(selectedRoute, selectedApproach);
+  const selectedCost = crewAdjustedCost(
+    riftExpeditionCost(selectedRoute, selectedCompletions),
+    selectedCrew,
+    selectedCrewXp,
+    selectedCrewFatigue,
+  );
+  const selectedRewards = crewAdjustedRewards(
+    riftExpeditionRewards(selectedRoute, selectedApproach, selectedCompletions),
+    selectedCrew,
+    selectedCrewXp,
+    selectedCrewFatigue,
+  );
+  const selectedDuration = crewAdjustedDuration(
+    riftExpeditionDuration(selectedRoute, selectedApproach),
+    selectedCrew,
+    selectedCrewXp,
+    selectedCrewFatigue,
+  );
   const hasMaterials = Object.entries(selectedCost.materials)
     .every(([id, amount]) => state.industryMaterials[id as IndustryMaterialId] >= (amount ?? 0));
-  const canLaunch = !state.activeRiftExpedition && selectedUnlocked && state.shards >= selectedCost.shards && hasMaterials;
+  const selectedCrewUnlocked = crewUnlocked(state.maxDepth, selectedCrew);
+  const canLaunch = !state.activeRiftExpedition && selectedUnlocked && selectedCrewUnlocked && state.shards >= selectedCost.shards && hasMaterials;
 
   const activeRoute = state.activeRiftExpedition ? riftRouteById(state.activeRiftExpedition.routeId) : null;
   const activeApproach = state.activeRiftExpedition ? riftApproachById(state.activeRiftExpedition.approachId) : null;
+  const activeCrew = state.activeRiftExpedition ? crewById(state.activeRiftExpedition.crewId) : null;
   const activeProgress = state.activeRiftExpedition
     ? ((state.activeRiftExpedition.duration - state.activeRiftExpedition.remaining) / state.activeRiftExpedition.duration) * 100
     : 0;
@@ -102,7 +135,7 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
         <div>
           <small>{activeRoute ? "ÉQUIPE EN TRANSIT" : "STATION CARTOGRAPHIQUE"}</small>
           <h3>{activeRoute ? activeRoute.name : "Réseau disponible"}</h3>
-          <p>{activeRoute && activeApproach ? `${activeApproach.name} · retour dans ${formatDuration(state.activeRiftExpedition?.remaining ?? 0)}` : "Choisis une destination et prépare son convoi."}</p>
+          <p>{activeRoute && activeApproach && activeCrew ? `${activeCrew.name} · ${activeApproach.name.toLowerCase()} · retour dans ${formatDuration(state.activeRiftExpedition?.remaining ?? 0)}` : "Choisis une destination et prépare son convoi."}</p>
         </div>
         <strong>{state.surveyData}<small>données</small></strong>
         <div className="rift-progress" role="progressbar" aria-label="Progression de l'expédition de faille" aria-valuemin={0} aria-valuemax={100} aria-valuenow={activeProgress}>
@@ -161,6 +194,45 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
           <div className="rift-briefing__locked"><Lock aria-hidden="true" /> Encore {selectedRoute.requiredSurvey - state.surveyData} données pour tracer cette route.</div>
         ) : (
           <>
+            <div className="rift-heading"><span>CHEF D'EXPÉDITION</span><small>Bonus qui progresse à chaque retour</small></div>
+            <div className="rift-crew-selector" role="group" aria-label="Chef d'expédition">
+              {CREW.map((member) => {
+                const unlocked = crewUnlocked(state.maxDepth, member);
+                const selected = selectedCrew.id === member.id;
+                const deployed = activeCrew?.id === member.id;
+                const xp = state.crewXp[member.id];
+                const level = crewLevel(xp);
+                const nextLevel = crewNextLevelXp(xp);
+                const fatigue = state.crewFatigue[member.id];
+                const xpProgress = nextLevel === null ? 100 : Math.min(100, (xp / nextLevel) * 100);
+                return (
+                  <button
+                    className={`rift-crew-card rift-crew-card--${member.accent}${selected ? " is-selected" : ""}${deployed ? " is-deployed" : ""}`}
+                    type="button"
+                    disabled={!unlocked}
+                    aria-pressed={selected}
+                    onClick={() => dispatch({ type: "SELECT_CREW", id: member.id })}
+                    key={member.id}
+                  >
+                    <span className="rift-crew-card__portrait">{unlocked ? <UserRound aria-hidden="true" /> : <Lock aria-hidden="true" />}</span>
+                    <span className="rift-crew-card__identity">
+                      <strong>{unlocked ? member.name : "Inconnu"}</strong>
+                      <small>{unlocked ? `${member.role} · Niv. ${level}` : `Rejoint à ${member.unlockDepth} m`}</small>
+                    </span>
+                    {unlocked && (
+                      <>
+                        <span className="rift-crew-card__bonus">{crewBonusLabel(member, xp, fatigue)}</span>
+                        <span className="rift-crew-card__meter" title={nextLevel === null ? "Niveau maximal" : `${xp}/${nextLevel} XP`}><i style={{ width: `${xpProgress}%` }} /></span>
+                        <span className="rift-crew-card__condition"><BatteryMedium aria-hidden="true" /> {Math.round(100 - fatigue)} %</span>
+                      </>
+                    )}
+                    {deployed && <em>EN MISSION</em>}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="rift-crew-note"><UserRound aria-hidden="true" /><span><strong>{selectedCrew.name} · {selectedCrew.specialty}</strong>{selectedCrew.description}</span></p>
+
             <div className="rift-heading"><span>PROTOCOLE DE MISSION</span><small>Modifie temps et butin</small></div>
             <div className="rift-approaches" role="group" aria-label="Protocole d'expédition">
               {RIFT_APPROACHES.map((approach) => {
@@ -196,7 +268,7 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
             </div>
 
             <button className="rift-launch" type="button" disabled={!canLaunch} onClick={() => dispatch({ type: "START_RIFT_EXPEDITION" })}>
-              {state.activeRiftExpedition ? <><Clock3 aria-hidden="true" />UNE ÉQUIPE EST DÉJÀ PARTIE</> : <><Send aria-hidden="true" />LANCER · {formatDuration(selectedDuration)}</>}
+              {state.activeRiftExpedition ? <><Clock3 aria-hidden="true" />UNE ÉQUIPE EST DÉJÀ PARTIE</> : <><Send aria-hidden="true" />LANCER AVEC {selectedCrew.name.toUpperCase()} · {formatDuration(selectedDuration)}</>}
             </button>
           </>
         )}
@@ -209,10 +281,11 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
         ) : state.riftReports.map((report) => {
           const route = riftRouteById(report.routeId);
           const approach = riftApproachById(report.approachId);
+          const member = crewById(report.crewId);
           return (
             <div className="rift-report" key={report.id}>
               <span><Check aria-hidden="true" /></span>
-              <div><strong>{route.name}</strong><small>{approach.name} · +{report.rewards.survey} cartographie · {formatNumber(report.rewards.coins)} pièces</small></div>
+              <div><strong>{route.name}</strong><small>{member.name} · {approach.name} · +{report.crewXp} XP · +{report.rewards.survey} cartographie · {formatNumber(report.rewards.coins)} pièces</small></div>
             </div>
           );
         })}
