@@ -125,8 +125,10 @@ import {
 } from "./game";
 import { GrandWorksPanel } from "./GrandWorksPanel";
 import { GRAND_WORKS_UNLOCK_EXPEDITIONS, autoRepeatUnlocked } from "./grandWorks";
+import { RiftNetworkPanel } from "./RiftNetworkPanel";
+import { riftNetworkUnlocked, riftRouteById } from "./riftNetwork";
 
-type PanelTab = "upgrades" | "machines" | "forge" | "contracts" | "research" | "industry" | "works" | "goals" | "expedition";
+type PanelTab = "upgrades" | "machines" | "forge" | "contracts" | "research" | "industry" | "works" | "rifts" | "goals" | "expedition";
 
 interface HitEffect {
   id: number;
@@ -139,7 +141,7 @@ interface HitEffect {
 
 interface GameNotice {
   id: string;
-  kind: "unlock" | "goal" | "contract" | "research" | "industry" | "works";
+  kind: "unlock" | "goal" | "contract" | "research" | "industry" | "works" | "rift";
   name: string;
   detail: string;
   machineId?: MachineId;
@@ -197,6 +199,7 @@ const tabDefinitions: Array<{ id: PanelTab; label: string; icon: LucideIcon }> =
   { id: "research", label: "Labo", icon: FlaskConical },
   { id: "industry", label: "Industrie", icon: Factory },
   { id: "works", label: "Travaux", icon: HardHat },
+  { id: "rifts", label: "Failles", icon: Map },
   { id: "goals", label: "Objectifs", icon: Trophy },
   { id: "expedition", label: "Cycles", icon: Compass },
 ];
@@ -215,9 +218,9 @@ function NoticeStack({
   return (
     <div className="notice-stack" aria-live="polite" aria-label="Nouveautés de la mine">
       {notices.slice(0, 2).map((notice) => {
-        const Icon = notice.kind === "contract" ? Handshake : notice.kind === "research" ? FlaskConical : notice.kind === "industry" ? Factory : notice.kind === "works" ? HardHat : notice.machineId ? machineIcons[notice.machineId] : Trophy;
-        const eyebrow = notice.kind === "unlock" ? "NOUVEAU PLAN DÉBLOQUÉ" : notice.kind === "contract" ? "NOUVEAU RÉSEAU" : notice.kind === "research" ? "NOUVELLE AILE" : notice.kind === "industry" ? "NOUVEAU COMPLEXE" : notice.kind === "works" ? "CHANTIERS DÉBLOQUÉS" : "OBJECTIF ATTEINT";
-        const actionLabel = notice.kind === "unlock" ? "ATELIER" : notice.kind === "contract" ? "CONTRATS" : notice.kind === "research" ? "LABO" : notice.kind === "industry" ? "INDUSTRIE" : notice.kind === "works" ? "TRAVAUX" : "OBJECTIFS";
+        const Icon = notice.kind === "contract" ? Handshake : notice.kind === "research" ? FlaskConical : notice.kind === "industry" ? Factory : notice.kind === "works" ? HardHat : notice.kind === "rift" ? Map : notice.machineId ? machineIcons[notice.machineId] : Trophy;
+        const eyebrow = notice.kind === "unlock" ? "NOUVEAU PLAN DÉBLOQUÉ" : notice.kind === "contract" ? "NOUVEAU RÉSEAU" : notice.kind === "research" ? "NOUVELLE AILE" : notice.kind === "industry" ? "NOUVEAU COMPLEXE" : notice.kind === "works" ? "CHANTIERS DÉBLOQUÉS" : notice.kind === "rift" ? "NOUVEAU SIGNAL" : "OBJECTIF ATTEINT";
+        const actionLabel = notice.kind === "unlock" ? "ATELIER" : notice.kind === "contract" ? "CONTRATS" : notice.kind === "research" ? "LABO" : notice.kind === "industry" ? "INDUSTRIE" : notice.kind === "works" ? "TRAVAUX" : notice.kind === "rift" ? "FAILLES" : "OBJECTIFS";
         return (
           <article className={`game-notice game-notice--${notice.kind}`} key={notice.id}>
             <span className="game-notice__icon"><Icon aria-hidden="true" /></span>
@@ -1352,7 +1355,7 @@ function CommandPanel({
       <div className="command-panel__body">
         <div className="panel-heading panel-heading--command">
           <div>
-            <span>{activeTab === "contracts" ? "COMPAGNIE MINIÈRE" : activeTab === "research" ? "LABORATOIRE D'ÉCHOS" : activeTab === "industry" ? "COMPLEXE SOUTERRAIN" : activeTab === "works" ? "CHANTIER DE PROFONDEUR" : "ATELIER MOBILE"}</span>
+            <span>{activeTab === "contracts" ? "COMPAGNIE MINIÈRE" : activeTab === "research" ? "LABORATOIRE D'ÉCHOS" : activeTab === "industry" ? "COMPLEXE SOUTERRAIN" : activeTab === "works" ? "CHANTIER DE PROFONDEUR" : activeTab === "rifts" ? "STATION CARTOGRAPHIQUE" : "ATELIER MOBILE"}</span>
             <h2>{tabDefinitions.find((tab) => tab.id === activeTab)?.label}</h2>
           </div>
           {activeTab === "contracts" ? <Handshake aria-hidden="true" /> : activeTab === "research" ? <FlaskConical aria-hidden="true" /> : activeTab === "industry" ? <Factory aria-hidden="true" /> : <HardHat aria-hidden="true" />}
@@ -1364,6 +1367,7 @@ function CommandPanel({
         {activeTab === "research" && <ResearchPanel state={state} dispatch={dispatch} />}
         {activeTab === "industry" && <IndustryPanel state={state} dispatch={dispatch} />}
         {activeTab === "works" && <GrandWorksPanel state={state} dispatch={dispatch} />}
+        {activeTab === "rifts" && <RiftNetworkPanel state={state} dispatch={dispatch} />}
         {activeTab === "goals" && <GoalsPanel state={state} dispatch={dispatch} />}
         {activeTab === "expedition" && <ExpeditionPanel state={state} dispatch={dispatch} />}
       </div>
@@ -1463,7 +1467,7 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>BRANCHE TEST · VERSION 0.8.0</small><h2 id="settings-title">Sauvegarde</h2></div>
+          <div><small>BRANCHE TEST · VERSION 0.9.0</small><h2 id="settings-title">Sauvegarde</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
@@ -1540,6 +1544,8 @@ export default function App() {
   const lastEffectId = useRef(state.impact.id);
   const previousMaxDepth = useRef(state.maxDepth);
   const previousExpeditions = useRef(state.expeditions);
+  const previousRiftUnlocked = useRef(riftNetworkUnlocked(state.expeditions, state.grandWorks));
+  const previousRiftCompletions = useRef(state.riftExpeditionsCompleted);
   const reachedGoals = useRef(new Set(
     GOALS
       .filter((goal) => goal.progress(state) >= goal.target || state.claimedGoals.includes(goal.id))
@@ -1633,6 +1639,33 @@ export default function App() {
   }, [queueNotices, state.expeditions]);
 
   useEffect(() => {
+    const unlocked = riftNetworkUnlocked(state.expeditions, state.grandWorks);
+    if (!previousRiftUnlocked.current && unlocked) {
+      queueNotices([{
+        id: `unlock-rifts-${state.expeditions}`,
+        kind: "rift",
+        name: "Le Réseau des Failles",
+        detail: "Une station cartographique capte cinq routes au-delà de la mine connue.",
+      }]);
+    }
+    previousRiftUnlocked.current = unlocked;
+  }, [queueNotices, state.expeditions, state.grandWorks]);
+
+  useEffect(() => {
+    if (state.riftExpeditionsCompleted > previousRiftCompletions.current && state.riftReports[0]) {
+      const report = state.riftReports[0];
+      const route = riftRouteById(report.routeId);
+      queueNotices([{
+        id: `rift-return-${report.id}`,
+        kind: "rift",
+        name: `${route.name} cartographiée`,
+        detail: `L'équipe rapporte ${report.rewards.survey} données et ${formatNumber(report.rewards.coins)} pièces.`,
+      }]);
+    }
+    previousRiftCompletions.current = state.riftExpeditionsCompleted;
+  }, [queueNotices, state.riftExpeditionsCompleted, state.riftReports]);
+
+  useEffect(() => {
     const newlyReached: GameNotice[] = [];
     GOALS.forEach((goal) => {
       const complete = goal.progress(state) >= goal.target;
@@ -1687,7 +1720,7 @@ export default function App() {
   };
 
   const openNotice = (notice: GameNotice) => {
-    setActiveTab(notice.kind === "unlock" ? "machines" : notice.kind === "contract" ? "contracts" : notice.kind === "research" ? "research" : notice.kind === "industry" ? "industry" : notice.kind === "works" ? "works" : "goals");
+    setActiveTab(notice.kind === "unlock" ? "machines" : notice.kind === "contract" ? "contracts" : notice.kind === "research" ? "research" : notice.kind === "industry" ? "industry" : notice.kind === "works" ? "works" : notice.kind === "rift" ? "rifts" : "goals");
     setNotices((current) => current.filter((item) => item.id !== notice.id));
     window.setTimeout(() => document.querySelector(".command-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };

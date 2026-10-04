@@ -1359,7 +1359,7 @@ button.ore-row {
   top: 0;
   z-index: 4;
   display: grid;
-  grid-template-columns: repeat(9, minmax(0, 1fr));
+  grid-template-columns: repeat(10, minmax(0, 1fr));
   min-height: 62px;
   border-bottom: 1px solid var(--line);
   background: #061217;
@@ -3022,6 +3022,554 @@ button.ore-row {
   font-size: 0.44rem;
 }
 
+.rift-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.rift-lock {
+  display: grid;
+  min-height: 360px;
+  align-content: center;
+  gap: 10px;
+  padding: 26px 18px;
+  border: 1px solid rgba(93, 164, 190, 0.22);
+  background:
+    linear-gradient(rgba(93, 164, 190, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(93, 164, 190, 0.04) 1px, transparent 1px);
+  background-size: 20px 20px;
+  text-align: center;
+}
+
+.rift-lock > svg {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 2px;
+  color: #8ed7ee;
+}
+
+.rift-lock > small,
+.rift-heading,
+.rift-console small,
+.rift-briefing small,
+.rift-manifest small {
+  color: var(--muted);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.57rem;
+  font-weight: 800;
+}
+
+.rift-lock h3 {
+  max-width: 300px;
+  margin: 0 auto 8px;
+  font-size: 0.92rem;
+}
+
+.rift-lock__requirement {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 9px;
+  border: 1px solid rgba(126, 240, 233, 0.12);
+  background: rgba(4, 17, 22, 0.75);
+  text-align: left;
+}
+
+.rift-lock__requirement span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #c8e9ef;
+  font-size: 0.64rem;
+}
+
+.rift-lock__requirement svg {
+  width: 15px;
+  color: #8ed7ee;
+}
+
+.rift-lock__requirement b {
+  color: #8ed7ee;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.63rem;
+}
+
+.rift-lock__requirement .rift-progress {
+  grid-column: 1 / -1;
+}
+
+.rift-console {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 11px;
+  border-top: 1px solid rgba(93, 164, 190, 0.32);
+  border-bottom: 1px solid rgba(93, 164, 190, 0.32);
+  background: rgba(26, 71, 85, 0.14);
+}
+
+.rift-console.is-active {
+  box-shadow: inset 3px 0 #8ed7ee;
+}
+
+.rift-console > span {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(142, 215, 238, 0.34);
+  border-radius: 5px;
+  place-items: center;
+  color: #8ed7ee;
+}
+
+.rift-console > span svg {
+  width: 22px;
+}
+
+.rift-console h3 {
+  margin: 2px 0 0;
+  color: #dcf8ff;
+  font-size: 0.86rem;
+}
+
+.rift-console p {
+  margin: 2px 0 0;
+  color: var(--muted-2);
+  font-size: 0.56rem;
+}
+
+.rift-console > strong {
+  display: grid;
+  color: #8ed7ee;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 1rem;
+  text-align: right;
+}
+
+.rift-console > strong small {
+  font-size: 0.48rem;
+}
+
+.rift-progress {
+  overflow: hidden;
+  height: 6px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.36);
+  box-shadow: inset 0 0 0 1px rgba(142, 215, 238, 0.08);
+}
+
+.rift-progress i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #5ce8e0, #8ed7ee, #c9b9ff);
+  transition: width 300ms ease;
+}
+
+.rift-console > .rift-progress,
+.rift-console > dl {
+  grid-column: 1 / -1;
+}
+
+.rift-console > dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin: 0;
+}
+
+.rift-console > dl div {
+  display: grid;
+  padding: 5px 7px;
+  border-left: 2px solid rgba(142, 215, 238, 0.34);
+  background: rgba(3, 15, 20, 0.48);
+}
+
+.rift-console dt {
+  color: var(--muted-2);
+  font-size: 0.48rem;
+}
+
+.rift-console dd {
+  margin: 1px 0 0;
+  color: #c8e9ef;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.62rem;
+}
+
+.rift-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rift-heading > span {
+  color: #8ed7ee;
+}
+
+.rift-heading > small {
+  overflow: hidden;
+  color: var(--muted-2);
+  font-size: 0.51rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rift-map {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid rgba(93, 164, 190, 0.2);
+  background:
+    linear-gradient(rgba(93, 164, 190, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(93, 164, 190, 0.035) 1px, transparent 1px),
+    rgba(3, 14, 19, 0.62);
+  background-size: 22px 22px;
+}
+
+.rift-node {
+  --rift-color: #8ed7ee;
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  width: 88%;
+  min-height: 52px;
+  align-items: center;
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid rgba(142, 215, 238, 0.16);
+  border-left: 3px solid var(--rift-color);
+  border-radius: 4px;
+  background: rgba(7, 25, 31, 0.94);
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.rift-node:nth-child(even) {
+  justify-self: end;
+}
+
+.rift-node--cyan { --rift-color: #5ce8e0; }
+.rift-node--green { --rift-color: #65d6a1; }
+.rift-node--ember { --rift-color: #ff815f; }
+.rift-node--violet { --rift-color: #c9b9ff; }
+.rift-node--glass { --rift-color: #92bfff; }
+
+.rift-node.is-selected {
+  border-color: color-mix(in srgb, var(--rift-color) 56%, transparent);
+  border-left-color: var(--rift-color);
+  background: color-mix(in srgb, var(--rift-color) 9%, #07191f);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--rift-color) 12%, transparent);
+}
+
+.rift-node.is-locked {
+  border-left-color: #496168;
+  filter: saturate(0.35);
+  opacity: 0.58;
+}
+
+.rift-node > b {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--rift-color) 35%, transparent);
+  border-radius: 50%;
+  place-items: center;
+  color: var(--rift-color);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.54rem;
+}
+
+.rift-node > span {
+  grid-column: 2;
+  color: #e7f5f6;
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+
+.rift-node > small {
+  grid-row: 2;
+  grid-column: 2;
+  color: var(--rift-color);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.46rem;
+}
+
+.rift-node > svg {
+  grid-row: 1 / 3;
+  grid-column: 3;
+  width: 16px;
+  color: var(--rift-color);
+}
+
+.rift-origin {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  margin-top: 3px;
+  padding: 9px;
+  border: 1px dashed rgba(201, 185, 255, 0.22);
+  color: #7d7891;
+}
+
+.rift-origin.is-detected {
+  border-style: solid;
+  border-color: rgba(201, 185, 255, 0.44);
+  color: #c9b9ff;
+  box-shadow: inset 0 0 20px rgba(201, 185, 255, 0.04);
+}
+
+.rift-origin > svg {
+  width: 18px;
+}
+
+.rift-origin > span {
+  display: grid;
+}
+
+.rift-origin small {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.45rem;
+}
+
+.rift-origin strong {
+  font-size: 0.67rem;
+}
+
+.rift-origin > b {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.52rem;
+}
+
+.rift-briefing {
+  --rift-color: #8ed7ee;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-top: 2px solid var(--rift-color);
+  border-bottom: 1px solid color-mix(in srgb, var(--rift-color) 24%, transparent);
+  background: color-mix(in srgb, var(--rift-color) 4%, rgba(5, 19, 24, 0.88));
+}
+
+.rift-briefing--cyan { --rift-color: #5ce8e0; }
+.rift-briefing--green { --rift-color: #65d6a1; }
+.rift-briefing--ember { --rift-color: #ff815f; }
+.rift-briefing--violet { --rift-color: #c9b9ff; }
+.rift-briefing--glass { --rift-color: #92bfff; }
+
+.rift-briefing__heading {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.rift-briefing__heading > span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  border: 1px solid color-mix(in srgb, var(--rift-color) 38%, transparent);
+  border-radius: 4px;
+  place-items: center;
+  color: var(--rift-color);
+}
+
+.rift-briefing__heading svg {
+  width: 18px;
+}
+
+.rift-briefing__heading h3 {
+  margin: 1px 0 0;
+  font-size: 0.78rem;
+}
+
+.rift-briefing__heading > b {
+  color: var(--rift-color);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.55rem;
+}
+
+.rift-briefing > p {
+  margin: 0;
+  color: var(--muted-2);
+  font-size: 0.59rem;
+  line-height: 1.4;
+}
+
+.rift-briefing__locked {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px dashed rgba(126, 240, 233, 0.14);
+  color: var(--muted);
+  font-size: 0.59rem;
+  text-align: center;
+}
+
+.rift-briefing__locked svg {
+  width: 16px;
+}
+
+.rift-approaches {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.rift-approaches button {
+  display: grid;
+  min-width: 0;
+  min-height: 94px;
+  padding: 7px 5px;
+  border: 1px solid rgba(126, 240, 233, 0.12);
+  border-radius: 4px;
+  place-items: center;
+  align-content: center;
+  background: rgba(4, 18, 23, 0.62);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.rift-approaches button.is-active {
+  border-color: color-mix(in srgb, var(--rift-color) 58%, transparent);
+  background: color-mix(in srgb, var(--rift-color) 9%, #06161c);
+  color: var(--rift-color);
+  box-shadow: inset 0 -2px var(--rift-color);
+}
+
+.rift-approaches svg {
+  width: 19px;
+}
+
+.rift-approaches strong {
+  margin-top: 4px;
+  font-size: 0.64rem;
+}
+
+.rift-approaches small {
+  margin-top: 3px;
+  color: var(--muted-2);
+  font-size: 0.46rem;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.rift-manifest {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.rift-manifest > div {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--rift-color) 42%, transparent);
+  background: rgba(3, 15, 20, 0.52);
+}
+
+.rift-manifest span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #cb8b86;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.49rem;
+}
+
+.rift-manifest > div:last-child span,
+.rift-manifest span.is-ready {
+  color: #8ed6b5;
+}
+
+.rift-manifest svg {
+  width: 12px;
+}
+
+.rift-launch {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--rift-color) 48%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--rift-color) 10%, #07181e);
+  color: var(--rift-color);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.59rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.rift-launch:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.rift-launch svg {
+  width: 17px;
+}
+
+.rift-reports {
+  display: grid;
+  gap: 5px;
+}
+
+.rift-reports > p {
+  margin: 0;
+  padding: 14px;
+  border: 1px dashed rgba(126, 240, 233, 0.12);
+  color: var(--muted-2);
+  font-size: 0.58rem;
+  text-align: center;
+}
+
+.rift-report {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid rgba(101, 214, 161, 0.15);
+  background: rgba(6, 25, 25, 0.54);
+}
+
+.rift-report > span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: #65d6a1;
+}
+
+.rift-report svg {
+  width: 16px;
+}
+
+.rift-report > div {
+  display: grid;
+}
+
+.rift-report strong {
+  font-size: 0.65rem;
+}
+
+.rift-report small {
+  margin-top: 2px;
+  color: var(--muted-2);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.48rem;
+}
+
 .goal-list {
   display: grid;
   gap: 7px;
@@ -3678,6 +4226,11 @@ button.ore-row {
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.48), inset 3px 0 #7dcbb2;
 }
 
+.game-notice--rift {
+  border-color: rgba(142, 215, 238, 0.58);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.48), inset 3px 0 #8ed7ee;
+}
+
 .game-notice__icon {
   display: grid;
   width: 48px;
@@ -3707,6 +4260,12 @@ button.ore-row {
   color: #b9f2df;
 }
 
+.game-notice--rift .game-notice__icon {
+  border-color: rgba(142, 215, 238, 0.34);
+  background: rgba(142, 215, 238, 0.09);
+  color: #c8f2ff;
+}
+
 .game-notice__icon svg {
   width: 23px;
   animation: notice-icon 600ms ease 120ms both;
@@ -3734,6 +4293,10 @@ button.ore-row {
 
 .game-notice--works .game-notice__copy small {
   color: #7dcbb2;
+}
+
+.game-notice--rift .game-notice__copy small {
+  color: #8ed7ee;
 }
 
 .game-notice__copy strong {
@@ -3781,6 +4344,12 @@ button.ore-row {
   border-color: rgba(125, 203, 178, 0.34);
   background: rgba(125, 203, 178, 0.08);
   color: #b9f2df;
+}
+
+.game-notice--rift .game-notice__action {
+  border-color: rgba(142, 215, 238, 0.34);
+  background: rgba(142, 215, 238, 0.08);
+  color: #c8f2ff;
 }
 
 .game-notice__action svg {
@@ -4506,6 +5075,14 @@ button.ore-row {
 
   .work-card__purchase,
   .stabilization-console {
+    grid-template-columns: 1fr;
+  }
+
+  .rift-node {
+    width: 94%;
+  }
+
+  .rift-manifest {
     grid-template-columns: 1fr;
   }
 

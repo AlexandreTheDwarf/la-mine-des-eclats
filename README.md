@@ -2,6 +2,18 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
+## Branche de préparation 0.9.0 - Le Réseau des Failles
+
+- station cartographique débloquée après trois cycles et huit paliers de Grands Travaux ;
+- cinq destinations de cinq minutes à trois heures, plus un signal terminal annonçant la Faille originelle ;
+- protocoles Éclaireur, Cartographe et Récupération pour arbitrer durée, progression et butin ;
+- expéditions parallèles à la mine et à l'industrie, poursuivies pendant l'absence ;
+- coûts croissants en éclats et composants lors des visites répétées ;
+- données cartographiques, historique des retours, notifications et trois objectifs dédiés ;
+- migration automatique des sauvegardes 0.8 et logique économique isolée dans `src/riftNetwork.ts`.
+
+Cette version vit sur la branche `feature/v0.9-reseau-failles` et n'est pas encore destinée à `main`.
+
 ## Branche de préparation 0.8.0 - Les Grands Travaux
 
 - trois infrastructures majeures et quinze paliers, débloqués après la deuxième expédition ;

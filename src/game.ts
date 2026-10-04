@@ -15,6 +15,23 @@ import {
   type GrandWorkId,
   type GrandWorkLevels,
 } from "./grandWorks.ts";
+import {
+  RIFT_APPROACHES,
+  RIFT_ROUTES,
+  emptyRiftRouteCompletions,
+  riftApproachById,
+  riftExpeditionCost,
+  riftExpeditionDuration,
+  riftExpeditionRewards,
+  riftNetworkUnlocked,
+  riftRouteById,
+  riftRouteUnlocked,
+  type RiftApproachId,
+  type RiftExpeditionJob,
+  type RiftReport,
+  type RiftRouteCompletions,
+  type RiftRouteId,
+} from "./riftNetwork.ts";
 
 export type OreId =
   | "stone"
@@ -187,7 +204,7 @@ export interface TradeRecord {
 }
 
 export interface GameState {
-  version: 9;
+  version: 10;
   shards: number;
   coins: number;
   echoes: number;
@@ -229,6 +246,13 @@ export interface GameState {
   // them compact makes future migrations and balance simulations inexpensive.
   grandWorks: GrandWorkLevels;
   stabilizations: number;
+  surveyData: number;
+  selectedRiftRouteId: RiftRouteId;
+  selectedRiftApproachId: RiftApproachId;
+  activeRiftExpedition: RiftExpeditionJob | null;
+  riftRouteCompletions: RiftRouteCompletions;
+  riftExpeditionsCompleted: number;
+  riftReports: RiftReport[];
   claimedGoals: string[];
   journal: JournalEntry[];
   activeEvent: MineEvent | null;
@@ -256,6 +280,9 @@ export type GameAction =
   | { type: "BUY_INDUSTRY_MODULE"; id: IndustryModuleId }
   | { type: "BUY_GRAND_WORK"; id: GrandWorkId }
   | { type: "STABILIZE_NETWORK" }
+  | { type: "SELECT_RIFT_ROUTE"; id: RiftRouteId }
+  | { type: "SELECT_RIFT_APPROACH"; id: RiftApproachId }
+  | { type: "START_RIFT_EXPEDITION" }
   | { type: "BUY_UPGRADE"; id: UpgradeId }
   | { type: "BUY_MACHINE"; id: MachineId }
   | { type: "BUY_LEGACY"; id: LegacyId }
@@ -556,6 +583,9 @@ export const GOALS: GoalDefinition[] = [
   { id: "works-network", name: "Plan sous pression", description: "Achever 8 paliers de Grands Travaux", target: 8, progress: (s) => grandWorkStages(s.grandWorks), reward: { research: 20, echoes: 12 } },
   { id: "works-complete", name: "Plus grand que la mine", description: "Achever les trois Grands Travaux", target: grandWorkStageTotal(), progress: (s) => grandWorkStages(s.grandWorks), reward: { echoes: 30, coins: 2_000_000_000 } },
   { id: "first-stabilization", name: "La faille tient", description: "Stabiliser le réseau une fois", target: 1, progress: (s) => s.stabilizations, reward: { echoes: 12, research: 25 } },
+  { id: "first-rift", name: "Hors des cartes", description: "Achever une expédition de faille", target: 1, progress: (s) => s.riftExpeditionsCompleted, reward: { echoes: 5, research: 10 } },
+  { id: "rift-cartographer", name: "Le réseau apparaît", description: "Réunir 20 données cartographiques", target: 20, progress: (s) => s.surveyData, reward: { echoes: 12, research: 25 } },
+  { id: "rift-veteran", name: "Toujours une route", description: "Achever 12 expéditions de faille", target: 12, progress: (s) => s.riftExpeditionsCompleted, reward: { echoes: 25, coins: 1_000_000_000 } },
 ];
 
 export interface DerivedStats {
@@ -646,7 +676,7 @@ export function rockNameFor(state: GameState): string {
 export function createInitialState(): GameState {
   const rockMaxHp = rockMaxHpFor(1);
   return {
-    version: 9,
+    version: 10,
     shards: 0,
     coins: 0,
     echoes: 0,
@@ -684,6 +714,13 @@ export function createInitialState(): GameState {
     completedBatches: 0,
     grandWorks: emptyGrandWorks(),
     stabilizations: 0,
+    surveyData: 0,
+    selectedRiftRouteId: RIFT_ROUTES[0].id,
+    selectedRiftApproachId: "survey",
+    activeRiftExpedition: null,
+    riftRouteCompletions: emptyRiftRouteCompletions(),
+    riftExpeditionsCompleted: 0,
+    riftReports: [],
     claimedGoals: [],
     journal: [{ id: 1, text: "La première galerie attend. Trois silhouettes observent depuis les poutres.", tone: "normal" }],
     activeEvent: null,
@@ -732,6 +769,31 @@ function normalizeState(candidate: StoredGameState): GameState {
       duration: Math.max(1, Number(job.duration) || 1),
     }))
     .slice(0, productionQueueCapacity(grandWorks));
+  const candidateRiftCompletions = { ...base.riftRouteCompletions, ...(candidate.riftRouteCompletions ?? {}) };
+  const riftRouteCompletions = Object.fromEntries(
+    RIFT_ROUTES.map((route) => [route.id, Math.max(0, Math.floor(Number(candidateRiftCompletions[route.id]) || 0))]),
+  ) as RiftRouteCompletions;
+  const selectedRiftRouteId = RIFT_ROUTES.some((route) => route.id === candidate.selectedRiftRouteId)
+    ? candidate.selectedRiftRouteId ?? base.selectedRiftRouteId
+    : base.selectedRiftRouteId;
+  const selectedRiftApproachId = RIFT_APPROACHES.some((approach) => approach.id === candidate.selectedRiftApproachId)
+    ? candidate.selectedRiftApproachId ?? base.selectedRiftApproachId
+    : base.selectedRiftApproachId;
+
+  // A running expedition represents already-paid resources. As with industrial
+  // orders, migration preserves that commitment even if surrounding data needs
+  // to be repaired or defaulted.
+  const rawRiftJob = candidate.activeRiftExpedition;
+  const activeRiftExpedition = rawRiftJob
+    && RIFT_ROUTES.some((route) => route.id === rawRiftJob.routeId)
+    && RIFT_APPROACHES.some((approach) => approach.id === rawRiftJob.approachId)
+    ? {
+        routeId: rawRiftJob.routeId,
+        approachId: rawRiftJob.approachId,
+        duration: Math.max(1, Number(rawRiftJob.duration) || 1),
+        remaining: Math.max(0, Number(rawRiftJob.remaining) || 0),
+      }
+    : null;
   const inferredPreviousSale =
     Number(candidate.coins ?? 0) > 0
     || Object.values(candidateMachines).some((level) => level > 0)
@@ -741,7 +803,7 @@ function normalizeState(candidate: StoredGameState): GameState {
   const merged: GameState = {
     ...base,
     ...candidateWithoutLegacyJob,
-    version: 9,
+    version: 10,
     toolTier,
     inventory: { ...base.inventory, ...(candidate.inventory ?? {}) },
     upgrades: candidateUpgrades,
@@ -768,6 +830,18 @@ function normalizeState(candidate: StoredGameState): GameState {
     completedBatches: Math.max(0, Math.floor(Number(candidate.completedBatches) || 0)),
     grandWorks,
     stabilizations: Math.max(0, Math.floor(Number(candidate.stabilizations) || 0)),
+    surveyData: Math.max(0, Math.floor(Number(candidate.surveyData) || 0)),
+    selectedRiftRouteId,
+    selectedRiftApproachId,
+    activeRiftExpedition,
+    riftRouteCompletions,
+    riftExpeditionsCompleted: Math.max(0, Math.floor(Number(candidate.riftExpeditionsCompleted) || 0)),
+    riftReports: Array.isArray(candidate.riftReports)
+      ? candidate.riftReports
+          .filter((report) => RIFT_ROUTES.some((route) => route.id === report?.routeId)
+            && RIFT_APPROACHES.some((approach) => approach.id === report?.approachId))
+          .slice(0, 8)
+      : [],
     claimedGoals: Array.isArray(candidate.claimedGoals) ? candidate.claimedGoals : [],
     journal: Array.isArray(candidate.journal) && candidate.journal.length ? candidate.journal.slice(0, 12) : base.journal,
     activeEvent: null,
@@ -825,7 +899,7 @@ export function loadGame(): GameState {
 
 function applyOfflineProgress(state: GameState): GameState {
   const elapsed = Math.min(28_800, Math.max(0, Math.floor((Date.now() - state.lastSavedAt) / 1_000)));
-  let next = progressIndustry(state, elapsed);
+  let next = progressRiftExpedition(progressIndustry(state, elapsed), elapsed);
   const stats = getDerivedStats(next);
   if (elapsed < 60 || stats.autoDamage <= 0) return next;
 
@@ -1334,8 +1408,55 @@ function progressIndustry(state: GameState, seconds: number): GameState {
   );
 }
 
+/**
+ * Advances the single exploration team. Rift expeditions intentionally run in
+ * parallel with mining and industry, creating a long-term return timer without
+ * pausing the rest of the incremental game.
+ */
+function progressRiftExpedition(state: GameState, seconds: number): GameState {
+  const job = state.activeRiftExpedition;
+  if (!job || seconds <= 0) return state;
+
+  const remaining = job.remaining - seconds;
+  if (remaining > 0) {
+    return { ...state, activeRiftExpedition: { ...job, remaining } };
+  }
+
+  const route = riftRouteById(job.routeId);
+  const approach = riftApproachById(job.approachId);
+  const previousCompletions = state.riftRouteCompletions[route.id];
+  const rewards = riftExpeditionRewards(route, approach, previousCompletions);
+  const report: RiftReport = {
+    id: Date.now() + state.riftExpeditionsCompleted,
+    routeId: route.id,
+    approachId: approach.id,
+    rewards,
+    completedAt: Date.now(),
+  };
+
+  return addJournal(
+    {
+      ...state,
+      coins: state.coins + rewards.coins,
+      echoes: state.echoes + rewards.echoes,
+      researchPoints: state.researchPoints + rewards.research,
+      surveyData: state.surveyData + rewards.survey,
+      activeRiftExpedition: null,
+      riftRouteCompletions: {
+        ...state.riftRouteCompletions,
+        [route.id]: previousCompletions + 1,
+      },
+      riftExpeditionsCompleted: state.riftExpeditionsCompleted + 1,
+      riftReports: [report, ...state.riftReports].slice(0, 8),
+      message: `EXPÉDITION REVENUE · ${route.name}, +${rewards.survey} données cartographiques.`,
+    },
+    `${route.name} cartographiée par l'équipe ${approach.name.toLowerCase()}.`,
+    previousCompletions === 0 ? "rare" : "good",
+  );
+}
+
 function tick(state: GameState, seconds: number): GameState {
-  let next = progressIndustry(ensureContractOffers(state), seconds);
+  let next = progressRiftExpedition(progressIndustry(ensureContractOffers(state), seconds), seconds);
   const stats = getDerivedStats(next);
   if (stats.autoDamage <= 0 || next.activeEvent) return next;
 
@@ -1634,6 +1755,51 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         "rare",
       );
     }
+    case "SELECT_RIFT_ROUTE": {
+      if (!RIFT_ROUTES.some((route) => route.id === action.id)) return state;
+      return { ...state, selectedRiftRouteId: action.id };
+    }
+    case "SELECT_RIFT_APPROACH": {
+      if (!RIFT_APPROACHES.some((approach) => approach.id === action.id)) return state;
+      return { ...state, selectedRiftApproachId: action.id };
+    }
+    case "START_RIFT_EXPEDITION": {
+      if (!riftNetworkUnlocked(state.expeditions, state.grandWorks) || state.activeRiftExpedition) return state;
+      const route = riftRouteById(state.selectedRiftRouteId);
+      const approach = riftApproachById(state.selectedRiftApproachId);
+      if (!riftRouteUnlocked(state.surveyData, route)) {
+        return { ...state, message: `La route exige ${route.requiredSurvey} données cartographiques.` };
+      }
+
+      const cost = riftExpeditionCost(route, state.riftRouteCompletions[route.id]);
+      const hasMaterials = Object.entries(cost.materials)
+        .every(([id, amount]) => state.industryMaterials[id as IndustryMaterialId] >= (amount ?? 0));
+      if (state.shards < cost.shards || !hasMaterials) {
+        return { ...state, message: "L'expédition attend encore ses éclats et composants." };
+      }
+
+      const materials = { ...state.industryMaterials };
+      Object.entries(cost.materials).forEach(([id, amount]) => {
+        materials[id as IndustryMaterialId] -= amount ?? 0;
+      });
+      const duration = riftExpeditionDuration(route, approach);
+      return addJournal(
+        {
+          ...state,
+          shards: state.shards - cost.shards,
+          industryMaterials: materials,
+          activeRiftExpedition: {
+            routeId: route.id,
+            approachId: approach.id,
+            duration,
+            remaining: duration,
+          },
+          message: `DÉPART CONFIRMÉ · ${route.name}, retour dans ${formatDuration(duration)}.`,
+        },
+        `Une équipe quitte le réseau vers ${route.name}.`,
+        "rare",
+      );
+    }
     case "BUY_UPGRADE": {
       const definition = UPGRADES.find((upgrade) => upgrade.id === action.id);
       if (!definition) return state;
@@ -1719,7 +1885,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const fresh = createInitialState();
       return {
         ...fresh,
-        version: 9,
+        version: 10,
         echoes: state.echoes + reward,
         maxDepth: Math.max(state.maxDepth, state.depth),
         expeditions: state.expeditions + 1,
@@ -1743,6 +1909,13 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         completedBatches: state.completedBatches,
         grandWorks: state.grandWorks,
         stabilizations: state.stabilizations,
+        surveyData: state.surveyData,
+        selectedRiftRouteId: state.selectedRiftRouteId,
+        selectedRiftApproachId: state.selectedRiftApproachId,
+        activeRiftExpedition: state.activeRiftExpedition,
+        riftRouteCompletions: state.riftRouteCompletions,
+        riftExpeditionsCompleted: state.riftExpeditionsCompleted,
+        riftReports: state.riftReports,
         claimedGoals: state.claimedGoals,
         soundOn: state.soundOn,
         impact: { ...fresh.impact, id: state.impact.id + 1 },

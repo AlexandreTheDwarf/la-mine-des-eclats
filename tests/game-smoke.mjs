@@ -43,6 +43,15 @@ import {
   stabilizationCost,
   stabilizationMultiplier,
 } from "../src/grandWorks.ts";
+import {
+  RIFT_APPROACHES,
+  RIFT_ROUTES,
+  riftExpeditionCost,
+  riftExpeditionDuration,
+  riftExpeditionRewards,
+  riftNetworkUnlocked,
+  riftRouteUnlocked,
+} from "../src/riftNetwork.ts";
 
 let state = createInitialState();
 const startingDepth = state.depth;
@@ -255,6 +264,56 @@ assert.equal(stabilizationState.shards, 0, "stabilization should consume its esc
 assert.ok(stabilizationMultiplier(1) > stabilizationBase, "stabilization should grant a permanent efficiency increase");
 assert.ok(stabilizationMultiplier(10_000) < 1.161, "the repeatable sink should never recreate unbounded exponential growth");
 
+const riftWorks = { freight: 3, furnace: 3, bureau: 2 };
+assert.equal(riftNetworkUnlocked(2, riftWorks), false, "the rift network should require three mine expeditions");
+assert.equal(riftNetworkUnlocked(3, { freight: 2, furnace: 2, bureau: 2 }), false, "the rift network should require eight completed work stages");
+assert.equal(riftNetworkUnlocked(3, riftWorks), true, "the rift network should open once both campaign gates are met");
+
+let cumulativeSurvey = 0;
+for (const route of RIFT_ROUTES) {
+  assert.ok(cumulativeSurvey >= route.requiredSurvey, "one first visit per route should reveal the next destination without repeat grinding");
+  cumulativeSurvey += route.firstSurvey;
+}
+assert.equal(cumulativeSurvey, 32, "surveying every route once should reveal the terminal signal");
+assert.ok(RIFT_ROUTES.reduce((total, route) => total + route.duration, 0) >= 5 * 60 * 60, "the first map traversal should add several hours of timed progression");
+
+const lanternRoute = RIFT_ROUTES[0];
+const surveyApproach = RIFT_APPROACHES.find((approach) => approach.id === "survey");
+const swiftApproach = RIFT_APPROACHES.find((approach) => approach.id === "swift");
+const salvageApproach = RIFT_APPROACHES.find((approach) => approach.id === "salvage");
+assert.ok(surveyApproach && swiftApproach && salvageApproach, "all three expedition approaches should exist");
+assert.ok(riftExpeditionDuration(lanternRoute, swiftApproach) < lanternRoute.duration, "scouting should shorten an expedition");
+assert.ok(riftExpeditionDuration(lanternRoute, salvageApproach) > lanternRoute.duration, "salvage should trade time for loot");
+
+const firstRiftCost = riftExpeditionCost(lanternRoute, 0);
+const firstRiftRewards = riftExpeditionRewards(lanternRoute, surveyApproach, 0);
+let riftState = {
+  ...createInitialState(),
+  expeditions: 3,
+  grandWorks: riftWorks,
+  shards: firstRiftCost.shards,
+  industryMaterials: {
+    gears: firstRiftCost.materials.gears ?? 0,
+    alloy: firstRiftCost.materials.alloy ?? 0,
+    prism: firstRiftCost.materials.prism ?? 0,
+  },
+};
+riftState = gameReducer(riftState, { type: "START_RIFT_EXPEDITION" });
+assert.equal(riftState.shards, 0, "launching a rift expedition should pay its shard manifest immediately");
+assert.equal(riftState.industryMaterials.gears, 0, "launching should commit its industrial components");
+assert.equal(riftState.activeRiftExpedition?.routeId, lanternRoute.id, "the selected route should become active");
+riftState = gameReducer(riftState, { type: "TICK", seconds: lanternRoute.duration - 1 });
+assert.ok(riftState.activeRiftExpedition, "an expedition should remain active until its last second");
+riftState = gameReducer(riftState, { type: "TICK", seconds: 1 });
+assert.equal(riftState.activeRiftExpedition, null, "a completed expedition should release the exploration team");
+assert.equal(riftState.riftRouteCompletions.lanterns, 1, "a return should advance its route record");
+assert.equal(riftState.riftExpeditionsCompleted, 1, "rift returns should feed lifetime objectives");
+assert.equal(riftState.surveyData, firstRiftRewards.survey, "cartography rewards should match the chosen approach");
+assert.equal(riftState.coins, firstRiftRewards.coins, "the returning team should grant its displayed coins");
+assert.equal(riftState.riftReports.length, 1, "the latest expedition should create a readable report");
+assert.ok(riftRouteUnlocked(riftState.surveyData, RIFT_ROUTES[1]), "the first survey should reveal the second map node");
+assert.ok(riftExpeditionCost(lanternRoute, 1).shards > firstRiftCost.shards, "repeat visits should become a growing shard sink");
+
 assert.equal(
   expectedOreYield(22, 2),
   expectedOreYield(22, 1) * 2,
@@ -341,6 +400,13 @@ let cappedState = {
   completedBatches: 7,
   grandWorks: { freight: 1, furnace: 1, bureau: 1 },
   stabilizations: 2,
+  surveyData: 7,
+  selectedRiftRouteId: "magnet",
+  selectedRiftApproachId: "swift",
+  activeRiftExpedition: { routeId: "lanterns", approachId: "swift", duration: 165, remaining: 90 },
+  riftRouteCompletions: { lanterns: 2, magnet: 1, emberSpine: 0, whispers: 0, glassArc: 0 },
+  riftExpeditionsCompleted: 3,
+  riftReports: [],
 };
 cappedState = gameReducer(cappedState, { type: "STRIKE" });
 assert.equal(cappedState.depth, 120, "the first expedition should stop at its 120 metre beacon");
@@ -376,6 +442,10 @@ assert.equal(cycledState.autoRepeatRecipeId, "gears", "industrial automation set
 assert.equal(cycledState.completedBatches, 7, "industrial production records should survive a new cycle");
 assert.deepEqual(cycledState.grandWorks, { freight: 1, furnace: 1, bureau: 1 }, "Grand Works should survive a new cycle");
 assert.equal(cycledState.stabilizations, 2, "network stabilizations should survive a new cycle");
+assert.equal(cycledState.surveyData, 7, "cartography data should survive a new cycle");
+assert.equal(cycledState.activeRiftExpedition?.remaining, 90, "a team in transit should survive a new mine cycle");
+assert.equal(cycledState.riftRouteCompletions.lanterns, 2, "rift route history should remain permanent");
+assert.equal(cycledState.riftExpeditionsCompleted, 3, "the rift expedition record should remain permanent");
 
 cycledState = { ...cycledState, toolTier: 1 };
 const legacyDamage = getDerivedStats(cycledState).clickDamage;
@@ -385,7 +455,7 @@ assert.ok(getDerivedStats(cycledState).clickDamage > legacyDamage, "a permanent 
 
 const oldSave = Buffer.from(JSON.stringify({ version: 4, depth: 60, selectedZoneId: 2, rockHp: 10, rockMaxHp: 10 }), "utf8").toString("base64");
 const migratedSave = decodeSave(oldSave);
-assert.equal(migratedSave.version, 9, "old saves should migrate to the Grand Works campaign");
+assert.equal(migratedSave.version, 10, "old saves should migrate to the Rift Network campaign");
 assert.equal(migratedSave.maxDepth, 60, "old saves should preserve their depth as a permanent record");
 assert.equal(migratedSave.inventory.dawn, 0, "old saves should receive the new ore slots");
 assert.equal(migratedSave.researchPoints, 0, "old saves should receive the research resource");
@@ -393,6 +463,8 @@ assert.equal(migratedSave.research.impact, 0, "old saves should receive empty re
 assert.deepEqual(migratedSave.industryMaterials, { gears: 0, alloy: 0, prism: 0 }, "old saves should receive empty industrial stores");
 assert.equal(migratedSave.productionQueue.length, 0, "old saves should start without industrial orders");
 assert.deepEqual(migratedSave.grandWorks, { freight: 0, furnace: 0, bureau: 0 }, "old saves should receive empty infrastructure plans");
+assert.equal(migratedSave.surveyData, 0, "old saves should receive an empty cartography record");
+assert.equal(migratedSave.activeRiftExpedition, null, "old saves should start without an exploration team in transit");
 
 const v7Save = Buffer.from(JSON.stringify({
   version: 8,
@@ -403,4 +475,16 @@ const migratedV7Save = decodeSave(v7Save);
 assert.equal(migratedV7Save.productionQueue[0]?.recipeId, "alloy", "v0.7 active production should migrate into the queue");
 assert.equal(migratedV7Save.productionQueue[0]?.remaining, 17, "migration should preserve already earned production time");
 
-console.log("OK: mining, trade, research, industry queues, Grand Works, save migration and expedition cycles.");
+const v8Save = Buffer.from(JSON.stringify({
+  version: 9,
+  expeditions: 3,
+  grandWorks: { freight: 3, furnace: 3, bureau: 2 },
+  stabilizations: 1,
+}), "utf8").toString("base64");
+const migratedV8Save = decodeSave(v8Save);
+assert.equal(migratedV8Save.version, 10, "v0.8 saves should migrate to the Rift Network schema");
+assert.deepEqual(migratedV8Save.grandWorks, { freight: 3, furnace: 3, bureau: 2 }, "migration should preserve Grand Works progression");
+assert.equal(migratedV8Save.selectedRiftRouteId, "lanterns", "new cartography settings should receive a safe default");
+assert.deepEqual(migratedV8Save.riftRouteCompletions, { lanterns: 0, magnet: 0, emberSpine: 0, whispers: 0, glassArc: 0 }, "v0.8 saves should receive an empty route record");
+
+console.log("OK: mining, trade, industry, Grand Works, Rift Network, save migration and expedition cycles.");
