@@ -24,6 +24,7 @@ import {
   getDerivedStats,
   inventoryCount,
   industryModuleCost,
+  industryQueueCapacity,
   industryUnlocked,
   marketQuoteAt,
   oreStudyCost,
@@ -35,6 +36,13 @@ import {
   veinsPerMeterFor,
   zoneForDepth,
 } from "../src/game.ts";
+import {
+  GRAND_WORKS,
+  grandWorkCost,
+  grandWorkStageTotal,
+  stabilizationCost,
+  stabilizationMultiplier,
+} from "../src/grandWorks.ts";
 
 let state = createInitialState();
 const startingDepth = state.depth;
@@ -148,13 +156,49 @@ assert.ok(gearsRecipe, "the gallery gear recipe should exist");
 industryState = gameReducer(industryState, { type: "START_INDUSTRY_RECIPE", id: "gears" });
 assert.equal(industryState.inventory.stone, 0, "starting a batch should consume its stone");
 assert.equal(industryState.inventory.copper, 0, "starting a batch should consume its copper");
-assert.equal(industryState.productionJob?.recipeId, "gears", "the selected recipe should enter production");
+assert.equal(industryState.productionQueue[0]?.recipeId, "gears", "the selected recipe should enter production");
 industryState = gameReducer(industryState, { type: "TICK", seconds: gearsRecipe.duration - 1 });
 assert.equal(industryState.industryMaterials.gears, 0, "an unfinished batch should not grant components");
 industryState = gameReducer(industryState, { type: "TICK", seconds: 1 });
 assert.equal(industryState.industryMaterials.gears, gearsRecipe.output, "a completed batch should grant its components");
 assert.equal(industryState.completedBatches, 1, "completed batches should feed industrial objectives");
-assert.equal(industryState.productionJob, null, "the production line should become available after completion");
+assert.equal(industryState.productionQueue.length, 0, "the production line should become available after completion");
+
+let queueState = {
+  ...createInitialState(),
+  expeditions: 2,
+  grandWorks: { freight: 2, furnace: 0, bureau: 0 },
+  inventory: { ...createInitialState().inventory, stone: 360, copper: 112 },
+};
+assert.equal(industryQueueCapacity(queueState), 3, "each logistics stage should add one queue slot");
+for (let index = 0; index < 4; index += 1) {
+  queueState = gameReducer(queueState, { type: "START_INDUSTRY_RECIPE", id: "gears" });
+}
+assert.equal(queueState.productionQueue.length, 3, "orders beyond queue capacity should be rejected");
+assert.equal(queueState.inventory.stone, 90, "a rejected order should not consume its inputs");
+
+let furnaceState = {
+  ...createInitialState(),
+  expeditions: 2,
+  grandWorks: { freight: 0, furnace: 1, bureau: 0 },
+  inventory: { ...createInitialState().inventory, stone: 90, copper: 28 },
+};
+furnaceState = gameReducer(furnaceState, { type: "START_INDUSTRY_RECIPE", id: "gears" });
+furnaceState = gameReducer(furnaceState, { type: "TICK", seconds: 22 });
+assert.equal(furnaceState.completedBatches, 1, "the thermal core should shorten effective production time");
+
+let repeatState = {
+  ...createInitialState(),
+  expeditions: 2,
+  grandWorks: { freight: 0, furnace: 0, bureau: 1 },
+  inventory: { ...createInitialState().inventory, stone: 180, copper: 56 },
+};
+repeatState = gameReducer(repeatState, { type: "SET_AUTO_REPEAT", id: "gears" });
+repeatState = gameReducer(repeatState, { type: "START_INDUSTRY_RECIPE", id: "gears" });
+repeatState = gameReducer(repeatState, { type: "TICK", seconds: gearsRecipe.duration });
+assert.equal(repeatState.completedBatches, 1, "auto-repeat should still count completed batches normally");
+assert.equal(repeatState.productionQueue.length, 1, "auto-repeat should append the replacement order");
+assert.equal(repeatState.inventory.stone, 0, "auto-repeat should commit the next batch inputs immediately");
 
 const pressModule = INDUSTRY_MODULES.find((module) => module.id === "press");
 assert.ok(pressModule, "the telluric press should exist");
@@ -168,6 +212,48 @@ const autoBeforePress = getDerivedStats(industryState).autoDamage;
 industryState = gameReducer(industryState, { type: "BUY_INDUSTRY_MODULE", id: "press" });
 assert.equal(industryState.industryModules.press, 1, "buying an industrial module should advance its level");
 assert.ok(getDerivedStats(industryState).autoDamage > autoBeforePress, "the telluric press should boost automation");
+
+const grandWorkShardTotal = GRAND_WORKS.reduce((total, definition) => {
+  let projectTotal = 0;
+  for (let level = 0; level < definition.max; level += 1) {
+    projectTotal += grandWorkCost(definition, level).shards;
+  }
+  return total + projectTotal;
+}, 0);
+assert.equal(grandWorkStageTotal(), 15, "the v0.8 campaign should contain fifteen infrastructure stages");
+assert.ok(grandWorkShardTotal > 15_000_000, "Grand Works should remain meaningful beyond a 1.3 million shard stockpile");
+
+const freightProject = GRAND_WORKS.find((definition) => definition.id === "freight");
+assert.ok(freightProject, "the logistics shaft should exist");
+const firstFreightCost = grandWorkCost(freightProject, 0);
+let worksState = {
+  ...createInitialState(),
+  expeditions: 2,
+  shards: firstFreightCost.shards,
+  industryMaterials: {
+    gears: firstFreightCost.materials.gears ?? 0,
+    alloy: firstFreightCost.materials.alloy ?? 0,
+    prism: firstFreightCost.materials.prism ?? 0,
+  },
+};
+worksState = gameReducer(worksState, { type: "BUY_GRAND_WORK", id: "freight" });
+assert.equal(worksState.grandWorks.freight, 1, "paying a project cost should complete exactly one stage");
+assert.equal(worksState.shards, 0, "a Grand Work should consume its advertised shard cost");
+assert.equal(worksState.industryMaterials.gears, 0, "a Grand Work should consume its advertised components");
+
+const stabilizationBase = stabilizationMultiplier(0);
+const firstStabilizationCost = stabilizationCost(0);
+let stabilizationState = {
+  ...createInitialState(),
+  expeditions: 2,
+  shards: firstStabilizationCost,
+  grandWorks: { freight: 5, furnace: 5, bureau: 5 },
+};
+stabilizationState = gameReducer(stabilizationState, { type: "STABILIZE_NETWORK" });
+assert.equal(stabilizationState.stabilizations, 1, "completed infrastructure should unlock repeatable stabilization");
+assert.equal(stabilizationState.shards, 0, "stabilization should consume its escalating shard cost");
+assert.ok(stabilizationMultiplier(1) > stabilizationBase, "stabilization should grant a permanent efficiency increase");
+assert.ok(stabilizationMultiplier(10_000) < 1.161, "the repeatable sink should never recreate unbounded exponential growth");
 
 assert.equal(
   expectedOreYield(22, 2),
@@ -250,7 +336,11 @@ let cappedState = {
   industryMaterials: { gears: 4, alloy: 2, prism: 1 },
   industryDoctrine: "resonance",
   industryModules: { press: 1, logistics: 1, stabilizer: 0 },
+  productionQueue: [{ recipeId: "gears", remaining: 12, duration: 24 }],
+  autoRepeatRecipeId: "gears",
   completedBatches: 7,
+  grandWorks: { freight: 1, furnace: 1, bureau: 1 },
+  stabilizations: 2,
 };
 cappedState = gameReducer(cappedState, { type: "STRIKE" });
 assert.equal(cappedState.depth, 120, "the first expedition should stop at its 120 metre beacon");
@@ -281,7 +371,11 @@ assert.equal(cycledState.research.impact, 1, "research protocols should survive 
 assert.deepEqual(cycledState.industryMaterials, { gears: 4, alloy: 2, prism: 1 }, "industrial components should survive a new cycle");
 assert.equal(cycledState.industryDoctrine, "resonance", "the industrial doctrine should survive a new cycle");
 assert.equal(cycledState.industryModules.press, 1, "industrial modules should survive a new cycle");
+assert.equal(cycledState.productionQueue[0]?.remaining, 12, "committed production orders should survive a new cycle");
+assert.equal(cycledState.autoRepeatRecipeId, "gears", "industrial automation settings should survive a new cycle");
 assert.equal(cycledState.completedBatches, 7, "industrial production records should survive a new cycle");
+assert.deepEqual(cycledState.grandWorks, { freight: 1, furnace: 1, bureau: 1 }, "Grand Works should survive a new cycle");
+assert.equal(cycledState.stabilizations, 2, "network stabilizations should survive a new cycle");
 
 cycledState = { ...cycledState, toolTier: 1 };
 const legacyDamage = getDerivedStats(cycledState).clickDamage;
@@ -291,12 +385,22 @@ assert.ok(getDerivedStats(cycledState).clickDamage > legacyDamage, "a permanent 
 
 const oldSave = Buffer.from(JSON.stringify({ version: 4, depth: 60, selectedZoneId: 2, rockHp: 10, rockMaxHp: 10 }), "utf8").toString("base64");
 const migratedSave = decodeSave(oldSave);
-assert.equal(migratedSave.version, 8, "old saves should migrate to the Industrial campaign");
+assert.equal(migratedSave.version, 9, "old saves should migrate to the Grand Works campaign");
 assert.equal(migratedSave.maxDepth, 60, "old saves should preserve their depth as a permanent record");
 assert.equal(migratedSave.inventory.dawn, 0, "old saves should receive the new ore slots");
 assert.equal(migratedSave.researchPoints, 0, "old saves should receive the research resource");
 assert.equal(migratedSave.research.impact, 0, "old saves should receive empty research protocols");
 assert.deepEqual(migratedSave.industryMaterials, { gears: 0, alloy: 0, prism: 0 }, "old saves should receive empty industrial stores");
-assert.equal(migratedSave.productionJob, null, "old saves should start without an industrial order");
+assert.equal(migratedSave.productionQueue.length, 0, "old saves should start without industrial orders");
+assert.deepEqual(migratedSave.grandWorks, { freight: 0, furnace: 0, bureau: 0 }, "old saves should receive empty infrastructure plans");
 
-console.log("OK: mining, market sales, Company contracts, Laboratory research, industry, galleries, legacies and expedition cycles.");
+const v7Save = Buffer.from(JSON.stringify({
+  version: 8,
+  expeditions: 1,
+  productionJob: { recipeId: "alloy", remaining: 17, duration: 42 },
+}), "utf8").toString("base64");
+const migratedV7Save = decodeSave(v7Save);
+assert.equal(migratedV7Save.productionQueue[0]?.recipeId, "alloy", "v0.7 active production should migrate into the queue");
+assert.equal(migratedV7Save.productionQueue[0]?.remaining, 17, "migration should preserve already earned production time");
+
+console.log("OK: mining, trade, research, industry queues, Grand Works, save migration and expedition cycles.");

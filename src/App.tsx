@@ -90,7 +90,9 @@ import {
   inventoryCount,
   industryModuleCost,
   industryModuleReady,
+  industryQueueCapacity,
   industryRecipeReady,
+  industrySpeed,
   industryUnlocked,
   loadGame,
   legacyCost,
@@ -121,8 +123,10 @@ import {
   type ResearchId,
   type UpgradeId,
 } from "./game";
+import { GrandWorksPanel } from "./GrandWorksPanel";
+import { GRAND_WORKS_UNLOCK_EXPEDITIONS, autoRepeatUnlocked } from "./grandWorks";
 
-type PanelTab = "upgrades" | "machines" | "forge" | "contracts" | "research" | "industry" | "goals" | "expedition";
+type PanelTab = "upgrades" | "machines" | "forge" | "contracts" | "research" | "industry" | "works" | "goals" | "expedition";
 
 interface HitEffect {
   id: number;
@@ -135,7 +139,7 @@ interface HitEffect {
 
 interface GameNotice {
   id: string;
-  kind: "unlock" | "goal" | "contract" | "research" | "industry";
+  kind: "unlock" | "goal" | "contract" | "research" | "industry" | "works";
   name: string;
   detail: string;
   machineId?: MachineId;
@@ -192,6 +196,7 @@ const tabDefinitions: Array<{ id: PanelTab; label: string; icon: LucideIcon }> =
   { id: "contracts", label: "Contrats", icon: ClipboardList },
   { id: "research", label: "Labo", icon: FlaskConical },
   { id: "industry", label: "Industrie", icon: Factory },
+  { id: "works", label: "Travaux", icon: HardHat },
   { id: "goals", label: "Objectifs", icon: Trophy },
   { id: "expedition", label: "Cycles", icon: Compass },
 ];
@@ -210,9 +215,9 @@ function NoticeStack({
   return (
     <div className="notice-stack" aria-live="polite" aria-label="Nouveautés de la mine">
       {notices.slice(0, 2).map((notice) => {
-        const Icon = notice.kind === "contract" ? Handshake : notice.kind === "research" ? FlaskConical : notice.kind === "industry" ? Factory : notice.machineId ? machineIcons[notice.machineId] : Trophy;
-        const eyebrow = notice.kind === "unlock" ? "NOUVEAU PLAN DÉBLOQUÉ" : notice.kind === "contract" ? "NOUVEAU RÉSEAU" : notice.kind === "research" ? "NOUVELLE AILE" : notice.kind === "industry" ? "NOUVEAU COMPLEXE" : "OBJECTIF ATTEINT";
-        const actionLabel = notice.kind === "unlock" ? "ATELIER" : notice.kind === "contract" ? "CONTRATS" : notice.kind === "research" ? "LABO" : notice.kind === "industry" ? "INDUSTRIE" : "OBJECTIFS";
+        const Icon = notice.kind === "contract" ? Handshake : notice.kind === "research" ? FlaskConical : notice.kind === "industry" ? Factory : notice.kind === "works" ? HardHat : notice.machineId ? machineIcons[notice.machineId] : Trophy;
+        const eyebrow = notice.kind === "unlock" ? "NOUVEAU PLAN DÉBLOQUÉ" : notice.kind === "contract" ? "NOUVEAU RÉSEAU" : notice.kind === "research" ? "NOUVELLE AILE" : notice.kind === "industry" ? "NOUVEAU COMPLEXE" : notice.kind === "works" ? "CHANTIERS DÉBLOQUÉS" : "OBJECTIF ATTEINT";
+        const actionLabel = notice.kind === "unlock" ? "ATELIER" : notice.kind === "contract" ? "CONTRATS" : notice.kind === "research" ? "LABO" : notice.kind === "industry" ? "INDUSTRIE" : notice.kind === "works" ? "TRAVAUX" : "OBJECTIFS";
         return (
           <article className={`game-notice game-notice--${notice.kind}`} key={notice.id}>
             <span className="game-notice__icon"><Icon aria-hidden="true" /></span>
@@ -932,10 +937,13 @@ function IndustryPanel({ state, dispatch }: { state: GameState; dispatch: React.
     );
   }
 
-  const activeRecipe = state.productionJob
-    ? INDUSTRY_RECIPES.find((recipe) => recipe.id === state.productionJob?.recipeId) ?? null
+  const activeJob = state.productionQueue[0] ?? null;
+  const activeRecipe = activeJob
+    ? INDUSTRY_RECIPES.find((recipe) => recipe.id === activeJob.recipeId) ?? null
     : null;
   const switchCost = state.industryDoctrine ? INDUSTRY_DOCTRINE_SWITCH_COST : 0;
+  const queueCapacity = industryQueueCapacity(state);
+  const speedBonus = Math.round((industrySpeed(state) - 1) * 100);
 
   return (
     <div className="industry-panel">
@@ -947,11 +955,31 @@ function IndustryPanel({ state, dispatch }: { state: GameState; dispatch: React.
         </div>
         <strong>{state.completedBatches}<small>lots achevés</small></strong>
         <ProgressBar
-          value={state.productionJob ? ((state.productionJob.duration - state.productionJob.remaining) / state.productionJob.duration) * 100 : 0}
+          value={activeJob ? ((activeJob.duration - activeJob.remaining) / activeJob.duration) * 100 : 0}
           label="Progression de la production"
           tone={activeRecipe ? "amber" : "cyan"}
         />
-        <p>{activeRecipe ? `${formatDuration(Math.ceil(state.productionJob?.remaining ?? 0))} avant la sortie du lot.` : "Aucun ordre en cours. Les chaînes attendent leurs minerais."}</p>
+        <p>{activeRecipe ? `${formatDuration(Math.ceil(activeJob?.remaining ?? 0))} avant la sortie du lot · vitesse +${speedBonus} %.` : "Aucun ordre en cours. Les chaînes attendent leurs minerais."}</p>
+      </section>
+
+      <section className="industry-queue" aria-label="File de production">
+        <div>
+          <small>FILE DE PRODUCTION</small>
+          <strong>{state.productionQueue.length} / {queueCapacity} ordres</strong>
+        </div>
+        <ol>
+          {Array.from({ length: queueCapacity }, (_, index) => {
+            const job = state.productionQueue[index];
+            const recipe = job ? INDUSTRY_RECIPES.find((candidate) => candidate.id === job.recipeId) : null;
+            return (
+              <li className={job ? index === 0 ? "is-active" : "is-waiting" : "is-empty"} key={index}>
+                <b>{index + 1}</b>
+                <span>{recipe ? recipe.name : "Emplacement libre"}</span>
+                {job && <small>{index === 0 ? formatDuration(job.remaining) : "EN ATTENTE"}</small>}
+              </li>
+            );
+          })}
+        </ol>
       </section>
 
       <div className="industry-materials" aria-label="Stock industriel">
@@ -990,12 +1018,12 @@ function IndustryPanel({ state, dispatch }: { state: GameState; dispatch: React.
 
       <div className="industry-heading">
         <span>ORDRES DE FABRICATION</span>
-        <small>Un seul lot à la fois</small>
+        <small>{state.productionQueue.length}/{queueCapacity} emplacements occupés</small>
       </div>
       <div className="recipe-list">
         {INDUSTRY_RECIPES.map((recipe) => {
           const ready = industryRecipeReady(state, recipe);
-          const running = state.productionJob?.recipeId === recipe.id;
+          const running = state.productionQueue.some((job) => job.recipeId === recipe.id);
           return (
             <article className={`recipe-row recipe-row--${recipe.id}${running ? " is-running" : ""}`} key={recipe.id}>
               <span className="recipe-row__output"><strong>+{recipe.output}</strong><small>{INDUSTRY_MATERIALS[recipe.id].shortName}</small></span>
@@ -1012,12 +1040,32 @@ function IndustryPanel({ state, dispatch }: { state: GameState; dispatch: React.
               </div>
               <button type="button" disabled={!ready} onClick={() => dispatch({ type: "START_INDUSTRY_RECIPE", id: recipe.id })}>
                 {running ? <RefreshCw aria-hidden="true" /> : <Factory aria-hidden="true" />}
-                <span>{running ? "EN COURS" : "LANCER"}</span>
+                <span>{ready ? "AJOUTER" : running ? "EN FILE" : "LANCER"}</span>
               </button>
             </article>
           );
         })}
       </div>
+
+      <section className={`auto-repeat${autoRepeatUnlocked(state.grandWorks) ? " is-unlocked" : ""}`}>
+        <div className="auto-repeat__heading">
+          <span><RefreshCw aria-hidden="true" /></span>
+          <div><small>INTENDANCE</small><strong>Répétition automatique</strong></div>
+          {!autoRepeatUnlocked(state.grandWorks) && <Lock aria-hidden="true" />}
+        </div>
+        {autoRepeatUnlocked(state.grandWorks) ? (
+          <div className="auto-repeat__choices" role="group" aria-label="Recette répétée automatiquement">
+            <button className={state.autoRepeatRecipeId === null ? "is-active" : ""} type="button" onClick={() => dispatch({ type: "SET_AUTO_REPEAT", id: null })}>ARRÊT</button>
+            {INDUSTRY_RECIPES.map((recipe) => (
+              <button className={state.autoRepeatRecipeId === recipe.id ? "is-active" : ""} type="button" onClick={() => dispatch({ type: "SET_AUTO_REPEAT", id: recipe.id })} key={recipe.id}>
+                {INDUSTRY_MATERIALS[recipe.id].shortName}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p>Le Bureau des intendants, palier 1, permet à une recette de repartir tant que ses minerais sont disponibles.</p>
+        )}
+      </section>
 
       <div className="industry-heading">
         <span>MODULES PERMANENTS</span>
@@ -1304,7 +1352,7 @@ function CommandPanel({
       <div className="command-panel__body">
         <div className="panel-heading panel-heading--command">
           <div>
-            <span>{activeTab === "contracts" ? "COMPAGNIE MINIÈRE" : activeTab === "research" ? "LABORATOIRE D'ÉCHOS" : activeTab === "industry" ? "COMPLEXE SOUTERRAIN" : "ATELIER MOBILE"}</span>
+            <span>{activeTab === "contracts" ? "COMPAGNIE MINIÈRE" : activeTab === "research" ? "LABORATOIRE D'ÉCHOS" : activeTab === "industry" ? "COMPLEXE SOUTERRAIN" : activeTab === "works" ? "CHANTIER DE PROFONDEUR" : "ATELIER MOBILE"}</span>
             <h2>{tabDefinitions.find((tab) => tab.id === activeTab)?.label}</h2>
           </div>
           {activeTab === "contracts" ? <Handshake aria-hidden="true" /> : activeTab === "research" ? <FlaskConical aria-hidden="true" /> : activeTab === "industry" ? <Factory aria-hidden="true" /> : <HardHat aria-hidden="true" />}
@@ -1315,6 +1363,7 @@ function CommandPanel({
         {activeTab === "contracts" && <ContractPanel state={state} dispatch={dispatch} />}
         {activeTab === "research" && <ResearchPanel state={state} dispatch={dispatch} />}
         {activeTab === "industry" && <IndustryPanel state={state} dispatch={dispatch} />}
+        {activeTab === "works" && <GrandWorksPanel state={state} dispatch={dispatch} />}
         {activeTab === "goals" && <GoalsPanel state={state} dispatch={dispatch} />}
         {activeTab === "expedition" && <ExpeditionPanel state={state} dispatch={dispatch} />}
       </div>
@@ -1414,7 +1463,7 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>VERSION 0.7.0 · LE COMPLEXE</small><h2 id="settings-title">Sauvegarde</h2></div>
+          <div><small>BRANCHE TEST · VERSION 0.8.0</small><h2 id="settings-title">Sauvegarde</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
@@ -1562,14 +1611,24 @@ export default function App() {
 
   useEffect(() => {
     const previous = previousExpeditions.current;
+    const unlocked: GameNotice[] = [];
     if (previous < INDUSTRY_UNLOCK_EXPEDITIONS && state.expeditions >= INDUSTRY_UNLOCK_EXPEDITIONS) {
-      queueNotices([{
+      unlocked.push({
         id: `unlock-industry-${state.expeditions}`,
         kind: "industry",
         name: "Le Complexe souterrain",
         detail: "Les minerais peuvent maintenant alimenter des chaînes de production permanentes.",
-      }]);
+      });
     }
+    if (previous < GRAND_WORKS_UNLOCK_EXPEDITIONS && state.expeditions >= GRAND_WORKS_UNLOCK_EXPEDITIONS) {
+      unlocked.push({
+        id: `unlock-works-${state.expeditions}`,
+        kind: "works",
+        name: "Les Grands Travaux",
+        detail: "Trois chantiers majeurs peuvent désormais absorber les réserves et transformer le réseau.",
+      });
+    }
+    queueNotices(unlocked);
     previousExpeditions.current = state.expeditions;
   }, [queueNotices, state.expeditions]);
 
@@ -1628,7 +1687,7 @@ export default function App() {
   };
 
   const openNotice = (notice: GameNotice) => {
-    setActiveTab(notice.kind === "unlock" ? "machines" : notice.kind === "contract" ? "contracts" : notice.kind === "research" ? "research" : notice.kind === "industry" ? "industry" : "goals");
+    setActiveTab(notice.kind === "unlock" ? "machines" : notice.kind === "contract" ? "contracts" : notice.kind === "research" ? "research" : notice.kind === "industry" ? "industry" : notice.kind === "works" ? "works" : "goals");
     setNotices((current) => current.filter((item) => item.id !== notice.id));
     window.setTimeout(() => document.querySelector(".command-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };

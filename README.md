@@ -2,6 +2,17 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
+## Branche de préparation 0.8.0 - Les Grands Travaux
+
+- trois infrastructures majeures et quinze paliers, débloqués après la deuxième expédition ;
+- près de 19 millions d'éclats nécessaires pour achever l'ensemble des chantiers ;
+- file industrielle extensible de un à six ordres et accélération permanente des chaînes ;
+- répétition automatique d'une recette, pilotée par le Bureau des intendants ;
+- puits à éclats sans fin après les Grands Travaux, avec rendement décroissant et bonus plafonné ;
+- quatre nouveaux objectifs, migration automatique des productions 0.7 et tests économiques dédiés.
+
+Cette version vit sur la branche `feature/v0.8-grands-travaux` tant qu'elle n'a pas reçu le feu vert pour `main`.
+
 ## Version 0.7.0 - Le Complexe
 
 - complexe industriel débloqué après la première expédition ;
@@ -10,13 +21,6 @@ Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 - quinze niveaux de modules industriels répartis entre automatisation, extraction, commerce et durabilité ;
 - productions actives pendant l'absence et conservées entre les cycles ;
 - trois nouveaux objectifs industriels et migration automatique des sauvegardes 0.6.1.
-
-## Piste 0.8.0 - Les Grands Travaux
-
-- grands chantiers en plusieurs paliers consommant de très gros volumes d'éclats ;
-- coûts allant de quelques dizaines de milliers à plusieurs millions pour rendre les stocks de fin de partie utiles ;
-- nouveaux réglages d'automatisation, infrastructures et choix de mine plutôt qu'un simple bonus exponentiel ;
-- puits à éclats répétable en fin de progression, avec rendement décroissant pour protéger l'équilibrage.
 
 ## Version 0.6.1 - Profondeur mobile
 

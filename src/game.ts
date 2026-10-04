@@ -1,3 +1,21 @@
+import {
+  GRAND_WORKS,
+  autoRepeatUnlocked,
+  emptyGrandWorks,
+  grandWorkCost,
+  grandWorkStages,
+  grandWorkStageTotal,
+  grandWorksComplete,
+  grandWorksUnlocked,
+  industrySpeedMultiplier,
+  productionQueueCapacity,
+  stabilizationCost,
+  stabilizationMultiplier,
+  stewardshipSaleMultiplier,
+  type GrandWorkId,
+  type GrandWorkLevels,
+} from "./grandWorks.ts";
+
 export type OreId =
   | "stone"
   | "copper"
@@ -169,7 +187,7 @@ export interface TradeRecord {
 }
 
 export interface GameState {
-  version: 8;
+  version: 9;
   shards: number;
   coins: number;
   echoes: number;
@@ -202,8 +220,15 @@ export interface GameState {
   industryMaterials: Record<IndustryMaterialId, number>;
   industryDoctrine: IndustryDoctrineId | null;
   industryModules: Record<IndustryModuleId, number>;
-  productionJob: ProductionJob | null;
+  // Inputs are paid when an order enters the queue, so no later state change
+  // can make a visibly accepted production disappear for lack of resources.
+  productionQueue: ProductionJob[];
+  autoRepeatRecipeId: IndustryRecipeId | null;
   completedBatches: number;
+  // These two values are the complete persistent footprint of v0.8. Keeping
+  // them compact makes future migrations and balance simulations inexpensive.
+  grandWorks: GrandWorkLevels;
+  stabilizations: number;
   claimedGoals: string[];
   journal: JournalEntry[];
   activeEvent: MineEvent | null;
@@ -227,7 +252,10 @@ export type GameAction =
   | { type: "BUY_RESEARCH"; id: ResearchId }
   | { type: "SELECT_INDUSTRY_DOCTRINE"; id: IndustryDoctrineId }
   | { type: "START_INDUSTRY_RECIPE"; id: IndustryRecipeId }
+  | { type: "SET_AUTO_REPEAT"; id: IndustryRecipeId | null }
   | { type: "BUY_INDUSTRY_MODULE"; id: IndustryModuleId }
+  | { type: "BUY_GRAND_WORK"; id: GrandWorkId }
+  | { type: "STABILIZE_NETWORK" }
   | { type: "BUY_UPGRADE"; id: UpgradeId }
   | { type: "BUY_MACHINE"; id: MachineId }
   | { type: "BUY_LEGACY"; id: LegacyId }
@@ -524,6 +552,10 @@ export const GOALS: GoalDefinition[] = [
   { id: "third-cycle", name: "Plus bas que la fin", description: "Lancer trois expéditions", target: 3, progress: (s) => s.expeditions, reward: { echoes: 10 } },
   { id: "foreman", name: "Contremaître du monde", description: "Briser 1 500 filons", target: 1_500, progress: (s) => s.rocksBroken, reward: { coins: 120_000_000 } },
   { id: "deepest", name: "Il reste encore du fond", description: "Atteindre 600 mètres", target: 600, progress: (s) => s.maxDepth, reward: { echoes: 20, coins: 1_000_000_000 } },
+  { id: "first-work", name: "Première pierre", description: "Achever un palier de Grand Travail", target: 1, progress: (s) => grandWorkStages(s.grandWorks), reward: { research: 8, echoes: 4 } },
+  { id: "works-network", name: "Plan sous pression", description: "Achever 8 paliers de Grands Travaux", target: 8, progress: (s) => grandWorkStages(s.grandWorks), reward: { research: 20, echoes: 12 } },
+  { id: "works-complete", name: "Plus grand que la mine", description: "Achever les trois Grands Travaux", target: grandWorkStageTotal(), progress: (s) => grandWorkStages(s.grandWorks), reward: { echoes: 30, coins: 2_000_000_000 } },
+  { id: "first-stabilization", name: "La faille tient", description: "Stabiliser le réseau une fois", target: 1, progress: (s) => s.stabilizations, reward: { echoes: 12, research: 25 } },
 ];
 
 export interface DerivedStats {
@@ -614,7 +646,7 @@ export function rockNameFor(state: GameState): string {
 export function createInitialState(): GameState {
   const rockMaxHp = rockMaxHpFor(1);
   return {
-    version: 8,
+    version: 9,
     shards: 0,
     coins: 0,
     echoes: 0,
@@ -647,8 +679,11 @@ export function createInitialState(): GameState {
     industryMaterials: emptyIndustryMaterials(),
     industryDoctrine: null,
     industryModules: emptyIndustryModules(),
-    productionJob: null,
+    productionQueue: [],
+    autoRepeatRecipeId: null,
     completedBatches: 0,
+    grandWorks: emptyGrandWorks(),
+    stabilizations: 0,
     claimedGoals: [],
     journal: [{ id: 1, text: "La première galerie attend. Trois silhouettes observent depuis les poutres.", tone: "normal" }],
     activeEvent: null,
@@ -661,8 +696,11 @@ export function createInitialState(): GameState {
   };
 }
 
-function normalizeState(candidate: Partial<GameState>): GameState {
+type StoredGameState = Partial<GameState> & { productionJob?: ProductionJob | null };
+
+function normalizeState(candidate: StoredGameState): GameState {
   const base = createInitialState();
+  const { productionJob: legacyProductionJob, ...candidateWithoutLegacyJob } = candidate;
   const toolTier = clamp(Math.floor(candidate.toolTier ?? 0), 0, TOOLS.length - 1);
   const candidateMachines = { ...base.machines, ...(candidate.machines ?? {}) };
   const candidateUpgrades = { ...base.upgrades, ...(candidate.upgrades ?? {}) };
@@ -671,6 +709,29 @@ function normalizeState(candidate: Partial<GameState>): GameState {
   const candidateResearch = { ...base.research, ...(candidate.research ?? {}) };
   const candidateIndustryMaterials = { ...base.industryMaterials, ...(candidate.industryMaterials ?? {}) };
   const candidateIndustryModules = { ...base.industryModules, ...(candidate.industryModules ?? {}) };
+  const candidateGrandWorks = { ...base.grandWorks, ...(candidate.grandWorks ?? {}) };
+  const grandWorks = Object.fromEntries(
+    GRAND_WORKS.map((definition) => [
+      definition.id,
+      clamp(Math.floor(Number(candidateGrandWorks[definition.id]) || 0), 0, definition.max),
+    ]),
+  ) as GrandWorkLevels;
+
+  // v0.7 stored one active job. v0.8 accepts it as the first queue entry,
+  // which means an update can never discard minerals already committed to it.
+  const rawQueue = Array.isArray(candidate.productionQueue)
+    ? candidate.productionQueue
+    : legacyProductionJob
+      ? [legacyProductionJob]
+      : [];
+  const productionQueue = rawQueue
+    .filter((job) => INDUSTRY_RECIPES.some((recipe) => recipe.id === job?.recipeId))
+    .map((job) => ({
+      recipeId: job.recipeId,
+      remaining: Math.max(0, Number(job.remaining) || 0),
+      duration: Math.max(1, Number(job.duration) || 1),
+    }))
+    .slice(0, productionQueueCapacity(grandWorks));
   const inferredPreviousSale =
     Number(candidate.coins ?? 0) > 0
     || Object.values(candidateMachines).some((level) => level > 0)
@@ -679,8 +740,8 @@ function normalizeState(candidate: Partial<GameState>): GameState {
     || toolTier > 0;
   const merged: GameState = {
     ...base,
-    ...candidate,
-    version: 8,
+    ...candidateWithoutLegacyJob,
+    version: 9,
     toolTier,
     inventory: { ...base.inventory, ...(candidate.inventory ?? {}) },
     upgrades: candidateUpgrades,
@@ -700,14 +761,13 @@ function normalizeState(candidate: Partial<GameState>): GameState {
     industryMaterials: Object.fromEntries(Object.keys(base.industryMaterials).map((id) => [id, Math.max(0, Math.floor(Number(candidateIndustryMaterials[id as IndustryMaterialId]) || 0))])) as Record<IndustryMaterialId, number>,
     industryDoctrine: INDUSTRY_DOCTRINES.some((doctrine) => doctrine.id === candidate.industryDoctrine) ? candidate.industryDoctrine ?? null : null,
     industryModules: Object.fromEntries(INDUSTRY_MODULES.map((definition) => [definition.id, clamp(Math.floor(Number(candidateIndustryModules[definition.id]) || 0), 0, definition.max)])) as Record<IndustryModuleId, number>,
-    productionJob: candidate.productionJob && INDUSTRY_RECIPES.some((recipe) => recipe.id === candidate.productionJob?.recipeId)
-      ? {
-          recipeId: candidate.productionJob.recipeId,
-          remaining: Math.max(0, Number(candidate.productionJob.remaining) || 0),
-          duration: Math.max(1, Number(candidate.productionJob.duration) || 1),
-        }
+    productionQueue,
+    autoRepeatRecipeId: autoRepeatUnlocked(grandWorks) && INDUSTRY_RECIPES.some((recipe) => recipe.id === candidate.autoRepeatRecipeId)
+      ? candidate.autoRepeatRecipeId ?? null
       : null,
     completedBatches: Math.max(0, Math.floor(Number(candidate.completedBatches) || 0)),
+    grandWorks,
+    stabilizations: Math.max(0, Math.floor(Number(candidate.stabilizations) || 0)),
     claimedGoals: Array.isArray(candidate.claimedGoals) ? candidate.claimedGoals : [],
     journal: Array.isArray(candidate.journal) && candidate.journal.length ? candidate.journal.slice(0, 12) : base.journal,
     activeEvent: null,
@@ -801,16 +861,20 @@ export function getDerivedStats(state: GameState): DerivedStats {
   const enduranceLegacy = Math.pow(1.15, state.legacy.endurance);
   const research = state.research ?? emptyResearch();
   const modules = state.industryModules ?? emptyIndustryModules();
+  const works = state.grandWorks ?? emptyGrandWorks();
+  // Stabilization is deliberately the final multiplier in each economy path.
+  // Its asymptotic cap therefore remains valid even when earlier systems grow.
+  const infrastructure = stabilizationMultiplier(state.stabilizations ?? 0);
   const extractionDoctrine = state.industryDoctrine === "extraction";
   const commerceDoctrine = state.industryDoctrine === "commerce";
   const resonanceDoctrine = state.industryDoctrine === "resonance";
-  const clickDamage = Math.max(1, Math.round(tool.damage * (1 + state.upgrades.power * 0.45) * manualLegacy * (1 + research.impact * 0.25) * (resonanceDoctrine ? 1.12 : 1)));
+  const clickDamage = Math.max(1, Math.round(tool.damage * (1 + state.upgrades.power * 0.45) * manualLegacy * (1 + research.impact * 0.25) * (resonanceDoctrine ? 1.12 : 1) * infrastructure));
   const maxDurability = Math.round((tool.durability + state.upgrades.sturdy * 25) * enduranceLegacy * (1 + research.metallurgy * 0.1) * (1 + modules.stabilizer * 0.05));
   const critChance = Math.min(0.56, 0.06 + state.upgrades.precision * 0.03 + research.resonance * 0.01 + (state.maxDepth >= 60 ? 0.04 : 0));
   const critMultiplier = 2 + Math.floor(state.upgrades.precision / 5) * 0.25;
-  const autoDamage = (state.machines.drill * 1.6 + state.machines.excavator * 180) * (1 + state.toolTier * 0.18) * industryLegacy * (1 + research.automation * 0.22) * (1 + modules.press * 0.18) * (extractionDoctrine ? 1.15 : 1);
-  const yieldMultiplier = (1 + state.machines.cart * 0.09 + state.upgrades.geology * 0.07) * fortuneLegacy * (1 + research.extraction * 0.08) * (1 + modules.logistics * 0.08) * (extractionDoctrine ? 1.2 : 1);
-  const saleMultiplier = (1 + state.machines.smelter * 0.14 + (state.maxDepth >= 25 ? 0.05 : 0)) * fortuneLegacy * (1 + research.commerce * 0.07) * (1 + modules.stabilizer * 0.08) * (commerceDoctrine ? 1.18 : 1);
+  const autoDamage = (state.machines.drill * 1.6 + state.machines.excavator * 180) * (1 + state.toolTier * 0.18) * industryLegacy * (1 + research.automation * 0.22) * (1 + modules.press * 0.18) * (extractionDoctrine ? 1.15 : 1) * infrastructure;
+  const yieldMultiplier = (1 + state.machines.cart * 0.09 + state.upgrades.geology * 0.07) * fortuneLegacy * (1 + research.extraction * 0.08) * (1 + modules.logistics * 0.08) * (extractionDoctrine ? 1.2 : 1) * infrastructure;
+  const saleMultiplier = (1 + state.machines.smelter * 0.14 + (state.maxDepth >= 25 ? 0.05 : 0)) * fortuneLegacy * (1 + research.commerce * 0.07) * (1 + modules.stabilizer * 0.08) * (commerceDoctrine ? 1.18 : 1) * stewardshipSaleMultiplier(works) * infrastructure;
   const resonanceGain = 6 + state.machines.resonator * 2 + research.resonance * 2 + (resonanceDoctrine ? 3 : 0);
   const missing = Math.max(0, maxDurability - state.durability);
   const discount = Math.max(0.28, 1 - state.upgrades.maintenance * 0.09);
@@ -844,8 +908,16 @@ export function industryUnlocked(state: Pick<GameState, "expeditions">): boolean
 
 export function industryRecipeReady(state: GameState, recipe: IndustryRecipeDefinition): boolean {
   return industryUnlocked(state)
-    && !state.productionJob
+    && state.productionQueue.length < productionQueueCapacity(state.grandWorks)
     && Object.entries(recipe.inputs).every(([id, amount]) => state.inventory[id as OreId] >= (amount ?? 0));
+}
+
+export function industryQueueCapacity(state: Pick<GameState, "grandWorks">): number {
+  return productionQueueCapacity(state.grandWorks);
+}
+
+export function industrySpeed(state: Pick<GameState, "grandWorks">): number {
+  return industrySpeedMultiplier(state.grandWorks);
 }
 
 export function industryModuleCost(definition: IndustryModuleDefinition, level: number): Partial<Record<IndustryMaterialId, number>> {
@@ -1182,28 +1254,82 @@ function strike(state: GameState): GameState {
   return next;
 }
 
+function hasRecipeInputs(inventory: Record<OreId, number>, recipe: IndustryRecipeDefinition): boolean {
+  return Object.entries(recipe.inputs)
+    .every(([id, amount]) => inventory[id as OreId] >= (amount ?? 0));
+}
+
+function consumeRecipeInputs(inventory: Record<OreId, number>, recipe: IndustryRecipeDefinition): Record<OreId, number> {
+  const next = { ...inventory };
+  Object.entries(recipe.inputs).forEach(([id, amount]) => {
+    next[id as OreId] -= amount ?? 0;
+  });
+  return next;
+}
+
+/**
+ * Advances the sequential production queue, including time earned while the
+ * game was closed. Repeated recipes are appended to the back of the queue so a
+ * chosen automation never starves orders the player has already scheduled.
+ */
 function progressIndustry(state: GameState, seconds: number): GameState {
-  if (!state.productionJob || seconds <= 0) return state;
-  const remaining = state.productionJob.remaining - seconds;
-  if (remaining > 0) {
-    return { ...state, productionJob: { ...state.productionJob, remaining } };
+  if (!state.productionQueue.length || seconds <= 0) return state;
+
+  let availableWork = seconds * industrySpeedMultiplier(state.grandWorks);
+  let queue = state.productionQueue.map((job) => ({ ...job }));
+  let inventory = { ...state.inventory };
+  const materials = { ...state.industryMaterials };
+  const capacity = productionQueueCapacity(state.grandWorks);
+  let completed = 0;
+  let guard = 0;
+
+  // A large offline interval can finish many short batches. The guard protects
+  // corrupted or hand-edited saves from creating an unbounded loop.
+  while (queue.length && availableWork > 0 && guard < 2_000) {
+    const current = queue[0];
+    const recipe = INDUSTRY_RECIPES.find((candidate) => candidate.id === current.recipeId);
+    if (!recipe) {
+      queue.shift();
+      guard += 1;
+      continue;
+    }
+
+    if (availableWork < current.remaining) {
+      current.remaining -= availableWork;
+      availableWork = 0;
+      break;
+    }
+
+    availableWork -= current.remaining;
+    queue.shift();
+    materials[recipe.id] += recipe.output;
+    completed += 1;
+
+    const shouldRepeat = autoRepeatUnlocked(state.grandWorks)
+      && state.autoRepeatRecipeId === recipe.id
+      && queue.length < capacity
+      && hasRecipeInputs(inventory, recipe);
+    if (shouldRepeat) {
+      inventory = consumeRecipeInputs(inventory, recipe);
+      queue.push({ recipeId: recipe.id, remaining: recipe.duration, duration: recipe.duration });
+    }
+    guard += 1;
   }
 
-  const recipe = INDUSTRY_RECIPES.find((candidate) => candidate.id === state.productionJob?.recipeId);
-  if (!recipe) return { ...state, productionJob: null };
-  const amount = recipe.output;
+  if (completed === 0) {
+    return { ...state, productionQueue: queue };
+  }
+
   return addJournal(
     {
       ...state,
-      industryMaterials: {
-        ...state.industryMaterials,
-        [recipe.id]: state.industryMaterials[recipe.id] + amount,
-      },
-      productionJob: null,
-      completedBatches: state.completedBatches + 1,
-      message: `PRODUCTION TERMINÉE · +${amount} ${recipe.name.toLowerCase()}.`,
+      inventory,
+      industryMaterials: materials,
+      productionQueue: queue,
+      completedBatches: state.completedBatches + completed,
+      message: `PRODUCTION INDUSTRIELLE · ${completed} lot${completed > 1 ? "s" : ""} terminé${completed > 1 ? "s" : ""}.`,
     },
-    `${recipe.name} : un nouveau lot quitte la chaîne industrielle.`,
+    `${completed} lot${completed > 1 ? "s quittent" : " quitte"} le réseau industriel.`,
     "good",
   );
 }
@@ -1419,15 +1545,25 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "START_INDUSTRY_RECIPE": {
       const recipe = INDUSTRY_RECIPES.find((candidate) => candidate.id === action.id);
       if (!recipe || !industryRecipeReady(state, recipe)) return state;
-      const inventory = { ...state.inventory };
-      Object.entries(recipe.inputs).forEach(([id, amount]) => {
-        inventory[id as OreId] -= amount ?? 0;
-      });
       return {
         ...state,
-        inventory,
-        productionJob: { recipeId: recipe.id, remaining: recipe.duration, duration: recipe.duration },
-        message: `${recipe.name.toUpperCase()} · chaîne lancée pour ${formatDuration(recipe.duration)}.`,
+        inventory: consumeRecipeInputs(state.inventory, recipe),
+        productionQueue: [
+          ...state.productionQueue,
+          { recipeId: recipe.id, remaining: recipe.duration, duration: recipe.duration },
+        ],
+        message: `${recipe.name.toUpperCase()} · ordre ajouté à la file industrielle.`,
+      };
+    }
+    case "SET_AUTO_REPEAT": {
+      if (!autoRepeatUnlocked(state.grandWorks)) return state;
+      if (action.id !== null && !INDUSTRY_RECIPES.some((recipe) => recipe.id === action.id)) return state;
+      return {
+        ...state,
+        autoRepeatRecipeId: action.id,
+        message: action.id
+          ? `${INDUSTRY_MATERIALS[action.id].shortName.toUpperCase()} · répétition automatique activée.`
+          : "Répétition automatique désactivée.",
       };
     }
     case "BUY_INDUSTRY_MODULE": {
@@ -1450,6 +1586,53 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         next.durability += getDerivedStats(next).maxDurability - oldStats.maxDurability;
       }
       return addJournal(next, `MODULE INDUSTRIEL · ${definition.name} niveau ${level + 1}.`, "rare");
+    }
+    case "BUY_GRAND_WORK": {
+      if (!grandWorksUnlocked(state.expeditions)) return state;
+      const definition = GRAND_WORKS.find((candidate) => candidate.id === action.id);
+      if (!definition) return state;
+      const level = state.grandWorks[action.id];
+      if (level >= definition.max) return state;
+      const cost = grandWorkCost(definition, level);
+      const hasMaterials = Object.entries(cost.materials)
+        .every(([id, amount]) => state.industryMaterials[id as IndustryMaterialId] >= (amount ?? 0));
+      if (state.shards < cost.shards || !hasMaterials) {
+        return { ...state, message: "Le chantier attend encore ses éclats et composants." };
+      }
+
+      const materials = { ...state.industryMaterials };
+      Object.entries(cost.materials).forEach(([id, amount]) => {
+        materials[id as IndustryMaterialId] -= amount ?? 0;
+      });
+      const nextLevel = level + 1;
+      return addJournal(
+        {
+          ...state,
+          shards: state.shards - cost.shards,
+          industryMaterials: materials,
+          grandWorks: { ...state.grandWorks, [action.id]: nextLevel },
+          message: `${definition.name.toUpperCase()} · palier ${nextLevel}/${definition.max} achevé.`,
+        },
+        `GRAND TRAVAIL · ${definition.name}, palier ${nextLevel}.`,
+        nextLevel === definition.max ? "rare" : "good",
+      );
+    }
+    case "STABILIZE_NETWORK": {
+      if (!grandWorksComplete(state.grandWorks)) return state;
+      const cost = stabilizationCost(state.stabilizations);
+      if (state.shards < cost) return { ...state, message: `La stabilisation exige ${formatNumber(cost)} éclats.` };
+      const nextLevel = state.stabilizations + 1;
+      const bonus = Math.round((stabilizationMultiplier(nextLevel) - 1) * 1000) / 10;
+      return addJournal(
+        {
+          ...state,
+          shards: state.shards - cost,
+          stabilizations: nextLevel,
+          message: `RÉSEAU STABILISÉ · efficacité globale +${bonus} % au total.`,
+        },
+        `La faille accepte une nouvelle stabilisation. Niveau ${nextLevel}.`,
+        "rare",
+      );
     }
     case "BUY_UPGRADE": {
       const definition = UPGRADES.find((upgrade) => upgrade.id === action.id);
@@ -1536,7 +1719,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const fresh = createInitialState();
       return {
         ...fresh,
-        version: 8,
+        version: 9,
         echoes: state.echoes + reward,
         maxDepth: Math.max(state.maxDepth, state.depth),
         expeditions: state.expeditions + 1,
@@ -1555,8 +1738,11 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         industryMaterials: state.industryMaterials,
         industryDoctrine: state.industryDoctrine,
         industryModules: state.industryModules,
-        productionJob: state.productionJob,
+        productionQueue: state.productionQueue,
+        autoRepeatRecipeId: state.autoRepeatRecipeId,
         completedBatches: state.completedBatches,
+        grandWorks: state.grandWorks,
+        stabilizations: state.stabilizations,
         claimedGoals: state.claimedGoals,
         soundOn: state.soundOn,
         impact: { ...fresh.impact, id: state.impact.id + 1 },
