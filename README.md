@@ -2,7 +2,7 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
-## Branche de préparation 0.7.0 - Le Complexe
+## Version 0.7.0 - Le Complexe
 
 - complexe industriel débloqué après la première expédition ;
 - trois chaînes transformant les anciens minerais en composants persistants ;
@@ -10,6 +10,13 @@ Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 - quinze niveaux de modules industriels répartis entre automatisation, extraction, commerce et durabilité ;
 - productions actives pendant l'absence et conservées entre les cycles ;
 - trois nouveaux objectifs industriels et migration automatique des sauvegardes 0.6.1.
+
+## Piste 0.8.0 - Les Grands Travaux
+
+- grands chantiers en plusieurs paliers consommant de très gros volumes d'éclats ;
+- coûts allant de quelques dizaines de milliers à plusieurs millions pour rendre les stocks de fin de partie utiles ;
+- nouveaux réglages d'automatisation, infrastructures et choix de mine plutôt qu'un simple bonus exponentiel ;
+- puits à éclats répétable en fin de progression, avec rendement décroissant pour protéger l'équilibrage.
 
 ## Version 0.6.1 - Profondeur mobile
 

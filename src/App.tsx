@@ -1414,7 +1414,7 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>BRANCHE TEST · VERSION 0.7.0</small><h2 id="settings-title">Sauvegarde</h2></div>
+          <div><small>VERSION 0.7.0 · LE COMPLEXE</small><h2 id="settings-title">Sauvegarde</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
