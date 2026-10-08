@@ -27,6 +27,7 @@ import {
 import { grandWorkStages } from "./grandWorks";
 import {
   CREW,
+  CREW_LEVEL_THRESHOLDS,
   crewAdjustedCost,
   crewAdjustedDuration,
   crewAdjustedRewards,
@@ -35,6 +36,7 @@ import {
   crewLevel,
   crewNextLevelXp,
   crewUnlocked,
+  crewXpForRoute,
 } from "./crew";
 import {
   RIFT_APPROACHES,
@@ -144,7 +146,7 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
         <dl>
           <div><dt>Retours</dt><dd>{state.riftExpeditionsCompleted}</dd></div>
           <div><dt>Routes</dt><dd>{Object.values(state.riftRouteCompletions).filter((count) => count > 0).length}/5</dd></div>
-          <div><dt>Horizon</dt><dd>{state.surveyData >= 32 ? "SIGNAL" : "INCONNU"}</dd></div>
+          <div><dt>Horizon</dt><dd>{state.originSignalFound ? "SIGNAL" : "INCONNU"}</dd></div>
         </dl>
       </section>
 
@@ -175,12 +177,13 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
             </button>
           );
         })}
-        <div className={`rift-origin${state.surveyData >= 32 ? " is-detected" : ""}`}>
+        <div className={`rift-origin${state.originSignalFound ? " is-detected" : ""}`}>
           <Sparkles aria-hidden="true" />
           <span><small>SIGNAL TERMINAL</small><strong>Faille originelle</strong></span>
-          <b>{state.surveyData >= 32 ? "DÉTECTÉE" : "???"}</b>
+          <b>{state.originSignalFound ? "DÉTECTÉE" : "???"}</b>
         </div>
       </div>
+      {!state.originSignalFound && <p className="rift-origin-requirement">Signal originel : {Math.min(32, state.surveyData)}/32 données · {Object.values(state.riftRouteCompletions).filter((count) => count > 0).length}/5 routes explorées</p>}
 
       <section className={`rift-briefing rift-briefing--${selectedRoute.tone}`}>
         <div className="rift-briefing__heading">
@@ -204,7 +207,8 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
                 const level = crewLevel(xp);
                 const nextLevel = crewNextLevelXp(xp);
                 const fatigue = state.crewFatigue[member.id];
-                const xpProgress = nextLevel === null ? 100 : Math.min(100, (xp / nextLevel) * 100);
+                const levelStart = CREW_LEVEL_THRESHOLDS[level - 1];
+                const xpProgress = nextLevel === null ? 100 : Math.min(100, ((xp - levelStart) / (nextLevel - levelStart)) * 100);
                 return (
                   <button
                     className={`rift-crew-card rift-crew-card--${member.accent}${selected ? " is-selected" : ""}${deployed ? " is-deployed" : ""}`}
@@ -222,8 +226,9 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
                     {unlocked && (
                       <>
                         <span className="rift-crew-card__bonus">{crewBonusLabel(member, xp, fatigue)}</span>
-                        <span className="rift-crew-card__meter" title={nextLevel === null ? "Niveau maximal" : `${xp}/${nextLevel} XP`}><i style={{ width: `${xpProgress}%` }} /></span>
-                        <span className="rift-crew-card__condition"><BatteryMedium aria-hidden="true" /> {Math.round(100 - fatigue)} %</span>
+                        <span className="rift-crew-card__meter" aria-hidden="true"><i style={{ width: `${xpProgress}%` }} /></span>
+                        <span className="rift-crew-card__xp">{nextLevel === null ? "Niveau maximal" : `${xp}/${nextLevel} XP`}</span>
+                        <span className="rift-crew-card__condition"><BatteryMedium aria-hidden="true" /> Forme {Math.round(100 - fatigue)} %</span>
                       </>
                     )}
                     {deployed && <em>EN MISSION</em>}
@@ -263,6 +268,7 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
                 <span><Coins aria-hidden="true" /> {formatNumber(selectedRewards.coins)} pièces</span>
                 <span><Database aria-hidden="true" /> {selectedRewards.research} données labo</span>
                 <span><Route aria-hidden="true" /> +{selectedRewards.survey} cartographie</span>
+                <span><UserRound aria-hidden="true" /> +{crewXpForRoute(selectedRoute)} XP · {selectedCrew.name}</span>
                 {selectedRewards.echoes > 0 && <span><Sparkles aria-hidden="true" /> {selectedRewards.echoes} échos</span>}
               </div>
             </div>

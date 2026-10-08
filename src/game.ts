@@ -24,6 +24,7 @@ import {
   riftExpeditionDuration,
   riftExpeditionRewards,
   riftNetworkUnlocked,
+  riftOriginReady,
   riftRouteById,
   riftRouteUnlocked,
   type RiftApproachId,
@@ -180,6 +181,8 @@ export interface OfflineReport {
   seconds: number;
   shards: number;
   ore: number;
+  batches: number;
+  expeditions: number;
 }
 
 export interface Impact {
@@ -222,7 +225,7 @@ export interface TradeRecord {
 }
 
 export interface GameState {
-  version: 11;
+  version: 12;
   shards: number;
   coins: number;
   echoes: number;
@@ -265,6 +268,7 @@ export interface GameState {
   grandWorks: GrandWorkLevels;
   stabilizations: number;
   surveyData: number;
+  originSignalFound: boolean;
   selectedRiftRouteId: RiftRouteId;
   selectedRiftApproachId: RiftApproachId;
   activeRiftExpedition: RiftExpeditionJob | null;
@@ -283,6 +287,8 @@ export interface GameState {
   message: string;
   soundOn: boolean;
   lastSavedAt: number;
+  // Saving is not simulation: this cursor advances only after time is paid out.
+  lastSimulatedAt: number;
 }
 
 export type GameAction =
@@ -318,7 +324,8 @@ export type GameAction =
   | { type: "RESET" };
 
 export const SAVE_KEY = "mine-des-eclats-save-v2";
-const TEASER_SAVE_KEY = "mine-des-eclats-teaser-v1";
+export const TEASER_SAVE_KEY = "mine-des-eclats-teaser-v1";
+export const MAX_OFFLINE_SECONDS = 28_800;
 
 export const ORES: Record<OreId, OreDefinition> = {
   stone: { id: "stone", name: "Roche brute", shortName: "Roche", value: 1, color: "#9aa7a9", glow: "#dbe5e5" },
@@ -701,7 +708,7 @@ export function rockNameFor(state: GameState): string {
 export function createInitialState(): GameState {
   const rockMaxHp = rockMaxHpFor(1);
   return {
-    version: 11,
+    version: 12,
     shards: 0,
     coins: 0,
     echoes: 0,
@@ -740,6 +747,7 @@ export function createInitialState(): GameState {
     grandWorks: emptyGrandWorks(),
     stabilizations: 0,
     surveyData: 0,
+    originSignalFound: false,
     selectedRiftRouteId: RIFT_ROUTES[0].id,
     selectedRiftApproachId: "survey",
     activeRiftExpedition: null,
@@ -758,6 +766,7 @@ export function createInitialState(): GameState {
     message: "Le filon répond à ton premier coup.",
     soundOn: true,
     lastSavedAt: Date.now(),
+    lastSimulatedAt: Date.now(),
   };
 }
 
@@ -845,7 +854,7 @@ function normalizeState(candidate: StoredGameState): GameState {
   const merged: GameState = {
     ...base,
     ...candidateWithoutLegacyJob,
-    version: 11,
+    version: 12,
     toolTier,
     inventory: { ...base.inventory, ...(candidate.inventory ?? {}) },
     upgrades: candidateUpgrades,
@@ -873,6 +882,10 @@ function normalizeState(candidate: StoredGameState): GameState {
     grandWorks,
     stabilizations: Math.max(0, Math.floor(Number(candidate.stabilizations) || 0)),
     surveyData: Math.max(0, Math.floor(Number(candidate.surveyData) || 0)),
+    // A signal already earned under the old rules is never taken away.
+    originSignalFound: candidate.originSignalFound === true
+      || (Number(candidate.version) < 12 && Number(candidate.surveyData) >= 32)
+      || riftOriginReady(Number(candidate.surveyData) || 0, riftRouteCompletions),
     selectedRiftRouteId,
     selectedRiftApproachId,
     activeRiftExpedition,
@@ -898,6 +911,7 @@ function normalizeState(candidate: StoredGameState): GameState {
     offlineReport: null,
     impact: { ...base.impact, ...(candidate.impact ?? {}) },
     lastSavedAt: Number(candidate.lastSavedAt) || Date.now(),
+    lastSimulatedAt: Number(candidate.lastSimulatedAt ?? candidate.lastSavedAt) || Date.now(),
   };
   const maxDurability = getDerivedStats(merged).maxDurability;
   merged.durability = clamp(Number(merged.durability) || 0, 0, maxDurability);
@@ -919,63 +933,64 @@ function normalizeState(candidate: StoredGameState): GameState {
   return merged;
 }
 
-export function loadGame(): GameState {
-  const fresh = createInitialState();
-  try {
-    const stored = localStorage.getItem(SAVE_KEY);
-    if (stored) return applyOfflineProgress(normalizeState(JSON.parse(stored)));
-
-    const teaser = localStorage.getItem(TEASER_SAVE_KEY);
-    if (teaser) {
-      const old = JSON.parse(teaser) as { shards?: number; durability?: number; resonance?: number; depth?: number; strikes?: number; soundOn?: boolean };
-      const migrated = normalizeState({
-        ...fresh,
-        shards: Math.max(0, old.shards ?? 0),
-        durability: clamp(old.durability ?? 100, 0, 100),
-        resonance: clamp(old.resonance ?? 0, 0, 99),
-        depth: Math.max(1, old.depth ?? 1),
-        totalStrikes: Math.max(0, old.strikes ?? 0),
-        soundOn: old.soundOn ?? true,
-        message: "L'ancien filon a laissé une trace. La mine se souvient.",
-        journal: [{ id: 1, text: "La progression du premier prototype a été récupérée.", tone: "good" }],
-      });
-      const hp = rockMaxHpFor(migrated.depth);
-      return { ...migrated, rockHp: hp, rockMaxHp: hp };
-    }
-  } catch {
-    return fresh;
-  }
-  return fresh;
+/** Legacy teaser import is kept separate from storage and modern validation. */
+export function migrateTeaserSave(raw: string): GameState {
+  const old = JSON.parse(raw);
+  if (!old || typeof old !== "object" || !Number.isFinite(old.shards)) throw new Error("Sauvegarde invalide");
+  const migrated = normalizeState({
+    ...createInitialState(),
+    shards: Math.max(0, old.shards),
+    durability: clamp(old.durability ?? 100, 0, 100),
+    resonance: clamp(old.resonance ?? 0, 0, 99),
+    depth: Math.max(1, old.depth ?? 1),
+    totalStrikes: Math.max(0, old.strikes ?? 0),
+    soundOn: old.soundOn ?? true,
+    message: "La progression du premier prototype a été récupérée.",
+  });
+  const hp = rockMaxHpFor(migrated.depth);
+  return { ...migrated, rockHp: hp, rockMaxHp: hp };
 }
 
-function applyOfflineProgress(state: GameState): GameState {
-  const elapsed = Math.min(28_800, Math.max(0, Math.floor((Date.now() - state.lastSavedAt) / 1_000)));
+/**
+ * One wall-clock cursor serves reloads, suspended tabs and live play. Consume
+ * the entire gap even when capped, so reloading cannot claim the same hours.
+ * Sub-second remainders survive normal ticks; a backwards clock grants nothing.
+ */
+export function advanceGameTime(state: GameState, now = Date.now(), background = false): GameState {
+  if (!Number.isFinite(now)) return state;
+  if (now < state.lastSimulatedAt) return { ...state, lastSimulatedAt: now };
+  const seconds = Math.floor((now - state.lastSimulatedAt) / 1_000);
+  if (seconds <= 0) return state;
+  const elapsed = Math.min(MAX_OFFLINE_SECONDS, seconds);
+  let next = state;
+  if (background || seconds > 5) {
+    next = applyOfflineProgress(state, elapsed);
+  } else {
+    // Preserve the original per-second mining rounding, regardless of how the
+    // browser groups callbacks. At most five iterations run on the UI thread.
+    for (let i = 0; i < elapsed; i += 1) next = tick(next, 1);
+  }
+  return { ...next, lastSimulatedAt: state.lastSimulatedAt + seconds * 1_000 };
+}
+
+function applyOfflineProgress(state: GameState, elapsed: number): GameState {
   let next = progressRiftAndCrew(progressIndustry(state, elapsed), elapsed);
   const stats = getDerivedStats(next);
-  if (elapsed < 60 || stats.autoDamage <= 0) return next;
-
   const work = stats.autoDamage * elapsed;
   const shards = Math.floor(work / 18);
   const ore = Math.floor(work / 34);
+  const batches = next.completedBatches - state.completedBatches;
+  const expeditions = next.riftExpeditionsCompleted - state.riftExpeditionsCompleted;
   const offlineOre = activeZoneForState(next).orePool[0].id;
   return {
     ...next,
     shards: next.shards + shards,
     totalMined: next.totalMined + ore,
     inventory: { ...next.inventory, [offlineOre]: next.inventory[offlineOre] + ore },
-    offlineReport: { seconds: elapsed, shards, ore },
-    message: "Les machines ont continué à gratter la montagne.",
-    lastSavedAt: Date.now(),
+    offlineReport: elapsed >= 60 && (shards + ore + batches + expeditions > 0)
+      ? { seconds: elapsed, shards, ore, batches, expeditions }
+      : next.offlineReport,
   };
-}
-
-export function saveGame(state: GameState): void {
-  try {
-    const toSave = { ...state, offlineReport: null, activeEvent: null, lastSavedAt: Date.now() };
-    localStorage.setItem(SAVE_KEY, JSON.stringify(toSave));
-  } catch {
-    // The game stays playable when storage is temporarily unavailable.
-  }
 }
 
 export function getDerivedStats(state: GameState): DerivedStats {
@@ -1484,6 +1499,7 @@ function progressRiftExpedition(state: GameState, seconds: number): GameState {
     state.crewFatigue[member.id],
   );
   const earnedCrewXp = crewXpForRoute(route);
+  const completions = { ...state.riftRouteCompletions, [route.id]: previousCompletions + 1 };
   const report: RiftReport = {
     id: Date.now() + state.riftExpeditionsCompleted,
     routeId: route.id,
@@ -1501,13 +1517,11 @@ function progressRiftExpedition(state: GameState, seconds: number): GameState {
       echoes: state.echoes + rewards.echoes,
       researchPoints: state.researchPoints + rewards.research,
       surveyData: state.surveyData + rewards.survey,
+      originSignalFound: state.originSignalFound || riftOriginReady(state.surveyData + rewards.survey, completions),
       crewXp: { ...state.crewXp, [member.id]: state.crewXp[member.id] + earnedCrewXp },
       crewFatigue: { ...state.crewFatigue, [member.id]: addCrewFatigue(state.crewFatigue[member.id]) },
       activeRiftExpedition: null,
-      riftRouteCompletions: {
-        ...state.riftRouteCompletions,
-        [route.id]: previousCompletions + 1,
-      },
+      riftRouteCompletions: completions,
       riftExpeditionsCompleted: state.riftExpeditionsCompleted + 1,
       riftReports: [report, ...state.riftReports].slice(0, 8),
       message: `RETOUR DE ${member.name.toUpperCase()} · ${route.name}, +${rewards.survey} données cartographiques.`,
@@ -1993,7 +2007,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const fresh = createInitialState();
       return {
         ...fresh,
-        version: 11,
+        version: 12,
         echoes: state.echoes + reward,
         maxDepth: Math.max(state.maxDepth, state.depth),
         expeditions: state.expeditions + 1,
@@ -2018,6 +2032,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         grandWorks: state.grandWorks,
         stabilizations: state.stabilizations,
         surveyData: state.surveyData,
+        originSignalFound: state.originSignalFound,
         selectedRiftRouteId: state.selectedRiftRouteId,
         selectedRiftApproachId: state.selectedRiftApproachId,
         activeRiftExpedition: state.activeRiftExpedition,
@@ -2058,7 +2073,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "DISMISS_OFFLINE":
       return { ...state, offlineReport: null };
     case "IMPORT":
-      return { ...normalizeState(action.state), message: "Sauvegarde importée. La mine reconnaît son propriétaire." };
+      return { ...advanceGameTime(normalizeState(action.state), Date.now(), true), message: "Sauvegarde importée. La mine reconnaît son propriétaire." };
     case "RESET":
       return createInitialState();
     default:
@@ -2077,8 +2092,64 @@ export function encodeSave(state: GameState): string {
 }
 
 export function decodeSave(value: string): GameState {
-  const parsed = JSON.parse(decodeURIComponent(escape(atob(value.trim()))));
-  if (!parsed || typeof parsed !== "object") throw new Error("Sauvegarde invalide");
+  return parseGameSave(decodeURIComponent(escape(atob(value.trim()))));
+}
+
+/** Validate before migration. Corrupt or future saves must not become a fresh
+ * game that the next autosave would silently write over the player's progress. */
+export function parseGameSave(raw: string): GameState {
+  const parsed = JSON.parse(raw, (_key, value: unknown) => {
+    if (typeof value === "number" && !Number.isFinite(value)) throw new Error("Nombre non fini");
+    return value;
+  });
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object"
+    || !Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > 12
+    || !["depth", "expeditions", "maxDepth", "shards"].some((key) => Number.isFinite(parsed[key]))) {
+    throw new Error("Sauvegarde incompatible ou endommagée");
+  }
+  const base = createInitialState();
+  if (parsed.version === 12 && Object.keys(base).some((key) => !(key in parsed))) {
+    throw new Error("Sauvegarde incomplète");
+  }
+  const checkShape = (value: unknown, example: unknown): void => {
+    if (typeof example === "number") {
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error("Nombre invalide");
+    } else if (Array.isArray(example)) {
+      if (!Array.isArray(value)) throw new Error("Liste invalide");
+    } else if (example && typeof example === "object") {
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Objet invalide");
+      for (const [key, entry] of Object.entries(value)) {
+        // A powerful machine can leave rock HP below zero until the next tick.
+        if (key === "rockHp" && typeof entry === "number" && Number.isFinite(entry)) continue;
+        if (key in example) checkShape(entry, (example as Record<string, unknown>)[key]);
+      }
+    } else if (example !== null && typeof value !== typeof example) throw new Error("Type invalide");
+  };
+  checkShape(parsed, base);
+  const validateEntries = (entries: unknown[], example: Record<string, unknown>) => {
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object" || Object.keys(example).some((key) => !(key in entry))) throw new Error("Entrée incomplète");
+      checkShape(entry, example);
+    }
+  };
+  validateEntries(parsed.journal ?? [], { id: 0, text: "", tone: "" });
+  validateEntries(parsed.tradeHistory ?? [], { id: 0, kind: "", label: "", units: 0, coins: 0, timestamp: 0 });
+  validateEntries(parsed.contractOffers ?? [], { id: "", buyer: "", title: "", requirements: base.inventory, rewardCoins: 0, rewardReputation: 0, expiresAt: 0 });
+  const queue = parsed.productionQueue ?? (parsed.productionJob ? [parsed.productionJob] : []);
+  validateEntries(queue, { recipeId: "", remaining: 0, duration: 0 });
+  if (queue.some((job: ProductionJob) => !INDUSTRY_RECIPES.some((recipe) => recipe.id === job.recipeId))) throw new Error("Recette inconnue");
+  if (parsed.activeRiftExpedition) {
+    validateEntries([parsed.activeRiftExpedition], { routeId: "", approachId: "", remaining: 0, duration: 0 });
+    if (!RIFT_ROUTES.some((route) => route.id === parsed.activeRiftExpedition.routeId)
+      || !RIFT_APPROACHES.some((approach) => approach.id === parsed.activeRiftExpedition.approachId)) throw new Error("Mission inconnue");
+  }
+  if ((parsed.claimedGoals ?? []).some((id: unknown) => typeof id !== "string")) throw new Error("Objectif invalide");
+  // Reports are displayed without additional guards in the UI.
+  for (const report of parsed.riftReports ?? []) {
+    if (!report || !report.rewards) throw new Error("Rapport invalide");
+    validateEntries([report], { id: 0, routeId: "", approachId: "", completedAt: 0 });
+    for (const key of ["coins", "research", "echoes", "survey"]) checkShape(report.rewards[key], 0);
+  }
   return normalizeState(parsed);
 }
 

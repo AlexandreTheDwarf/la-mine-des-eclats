@@ -489,7 +489,7 @@ assert.ok(getDerivedStats(cycledState).clickDamage > legacyDamage, "a permanent 
 
 const oldSave = Buffer.from(JSON.stringify({ version: 4, depth: 60, selectedZoneId: 2, rockHp: 10, rockMaxHp: 10 }), "utf8").toString("base64");
 const migratedSave = decodeSave(oldSave);
-assert.equal(migratedSave.version, 11, "old saves should migrate to the crew campaign");
+assert.equal(migratedSave.version, 12, "old saves should migrate to the reliability schema");
 assert.equal(migratedSave.maxDepth, 60, "old saves should preserve their depth as a permanent record");
 assert.equal(migratedSave.inventory.dawn, 0, "old saves should receive the new ore slots");
 assert.equal(migratedSave.researchPoints, 0, "old saves should receive the research resource");
@@ -518,7 +518,7 @@ const v8Save = Buffer.from(JSON.stringify({
   stabilizations: 1,
 }), "utf8").toString("base64");
 const migratedV8Save = decodeSave(v8Save);
-assert.equal(migratedV8Save.version, 11, "v0.8 saves should migrate to the crew schema");
+assert.equal(migratedV8Save.version, 12, "v0.8 saves should migrate to the reliability schema");
 assert.deepEqual(migratedV8Save.grandWorks, { freight: 3, furnace: 3, bureau: 2 }, "migration should preserve Grand Works progression");
 assert.equal(migratedV8Save.selectedRiftRouteId, "lanterns", "new cartography settings should receive a safe default");
 assert.deepEqual(migratedV8Save.riftRouteCompletions, { lanterns: 0, magnet: 0, emberSpine: 0, whispers: 0, glassArc: 0 }, "v0.8 saves should receive an empty route record");

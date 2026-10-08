@@ -193,6 +193,11 @@ export function riftRouteUnlocked(surveyData: number, route: RiftRouteDefinition
   return surveyData >= route.requiredSurvey;
 }
 
+/** Cartography alone cannot triangulate the origin from a single nearby route. */
+export function riftOriginReady(surveyData: number, completions: RiftRouteCompletions): boolean {
+  return surveyData >= 32 && RIFT_ROUTES.every((route) => completions[route.id] > 0);
+}
+
 /**
  * Repeated visits become a growing resource sink. The shallow 18 % curve lets
  * a favourite route stay usable without making its first launch insignificant.

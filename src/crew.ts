@@ -79,7 +79,7 @@ export const CREW: CrewDefinition[] = [
   },
 ];
 
-const CREW_LEVEL_THRESHOLDS = [0, 100, 260, 520, 900] as const;
+export const CREW_LEVEL_THRESHOLDS = [0, 100, 260, 520, 900] as const;
 export const CREW_MAX_LEVEL = CREW_LEVEL_THRESHOLDS.length;
 export const CREW_FATIGUE_PER_RETURN = 40;
 export const CREW_REST_SECONDS_PER_POINT = 90;
@@ -112,7 +112,9 @@ export function crewNextLevelXp(xp: number): number | null {
 
 /** Long and dangerous routes teach more without making short routes worthless. */
 export function crewXpForRoute(route: RiftRouteDefinition): number {
-  return 35 + route.index * 25;
+  // Roughly 7 to 3 XP/minute, instead of 7 to 0.75. Short missions retain a
+  // benefit for active play, but long missions are now worthwhile training.
+  return [35, 75, 155, 300, 550][route.index] ?? 35;
 }
 
 /**
@@ -151,20 +153,22 @@ export function crewAdjustedDuration(baseDuration: number, member: CrewDefinitio
 
 export function crewAdjustedCost(cost: RiftExpeditionCost, member: CrewDefinition, xp: number, fatigue: number): RiftExpeditionCost {
   const level = crewLevel(xp);
-  const readiness = crewReadiness(fatigue);
   const shardReduction = member.id === "silex" ? scaledSpecialty(level, fatigue, 0.12, 0.03) : 0;
   const materialReduction = member.id === "braise" ? scaledSpecialty(level, fatigue, 0.12, 0.025) : 0;
   return {
     shards: Math.max(1, Math.ceil(cost.shards * (1 - shardReduction))),
     materials: Object.fromEntries(
-      Object.entries(cost.materials).map(([id, amount]) => [id, Math.max(1, Math.ceil((amount ?? 0) * (1 - materialReduction)))]),
+      // Components are indivisible. A positive discount saves at least one
+      // component whenever the manifest asks for two or more, never the last.
+      Object.entries(cost.materials).map(([id, amount]) => [id, Math.max(1,
+        (amount ?? 0) - (materialReduction > 0 ? Math.max(1, Math.round((amount ?? 0) * materialReduction)) : 0),
+      )]),
     ) as RiftExpeditionCost["materials"],
   };
 }
 
 export function crewAdjustedRewards(rewards: RiftExpeditionRewards, member: CrewDefinition, xp: number, fatigue: number): RiftExpeditionRewards {
   const level = crewLevel(xp);
-  const readiness = crewReadiness(fatigue);
   const coinBonus = member.id === "nova" ? scaledSpecialty(level, fatigue, 0.15, 0.04) : 0;
   const signalBonus = member.id === "aurore" ? scaledSpecialty(level, fatigue, 0.2, 0.05) : 0;
   const surveyBonus = member.id === "opale" ? Math.max(1, Math.floor((level + 1) / 2)) : 0;

@@ -2,6 +2,65 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
+## Branche de préparation 0.9.2 - La mine dans la poche
+
+- horloge réelle commune au jeu actif, au retour d'onglet et au rechargement ;
+- progression d'absence plafonnée à huit heures, comptée une seule fois ;
+- sauvegarde toutes les cinq secondes et au passage en arrière-plan ;
+- secours tournant, export en fichier, import et restauration depuis les réglages ;
+- sauvegarde illisible, stockage refusé ou onglet périmé : partie mise en pause, jamais remplacée silencieusement ;
+- Braise économise au moins un composant par ligne de deux unités ou plus ;
+- missions longues mieux rémunérées en expérience, XP et forme lisibles sur mobile ;
+- signal originel exigeant 32 données et cinq routes explorées (les signaux déjà obtenus sont conservés) ;
+- PWA installable dans les navigateurs compatibles, six décors disponibles hors connexion après mise en cache ;
+- mises à jour proposées, puis appliquées après sauvegarde, sans rechargement forcé en pleine partie.
+
+Branche : `feature/v0.9.2-fiabilite-mobile`. Elle inclut les préparations 0.8, 0.9 et 0.9.1, **sans fusion ni publication sur `main`**.
+
+Il s'agit toujours de la webapp, pas d'un APK ni d'une publication Play Store. L'installation n'ajoute ni compte ni synchronisation entre appareils. Le calcul des gains se fait au retour, sans garder le téléphone éveillé.
+
+### Repères pour modifier le code
+
+| Fichier | Responsabilité |
+| --- | --- |
+| `src/game.ts` | Règles du jeu, migration et validation des sauvegardes, calcul du temps écoulé |
+| `src/saveStore.ts` | Accès au stockage, secours, archivage et détection des écritures d'autres onglets |
+| `src/useGameSession.ts` | Coordination React, horloge, visibilité et enregistrement |
+| `src/SaveRecovery.tsx` | Écran de récupération et export fichier |
+| `src/crew.ts` | Niveaux, fatigue, XP par route et bonus des spécialistes |
+| `src/riftNetwork.ts` | Routes, protocoles, coûts et conditions du signal originel |
+| `src/RiftNetworkPanel.tsx` | Carte, préparation, équipage et rapports |
+| `src/usePwa.ts`, `vite.config.ts` | Installation, cache Workbox et mises à jour |
+
+La sauvegarde garde sa clé historique `mine-des-eclats-save-v2` et passe au schéma 12. `lastSimulatedAt` indique jusqu'où les gains ont été calculés ; `lastSavedAt` indique quand les données ont été écrites. **Ne pas les confondre**, sinon un enregistrement peut effacer du temps de progression.
+
+Le secours `mine-des-eclats-save-v2-backup` tourne au plus une fois par minute ; un import ou une nouvelle partie sauvegarde immédiatement l'état précédent. Une restauration après corruption conserve les octets originaux dans une clé `mine-des-eclats-save-v2-recovery-<date>`. Rien de tout cela ne protège d'un effacement complet des données du navigateur : l'export fichier reste nécessaire pour une copie indépendante.
+
+Le contrôle multi-onglets détecte une révision périmée avant les actions et sauvegardes, ainsi que les événements de stockage. Ce n'est pas un service de synchronisation ni une transaction multi-appareils ; privilégier un seul onglet actif.
+
+### Vérification de cette version
+
+```bash
+npm ci
+npm test
+npm run simulate
+npm run build
+npm run check:pwa
+npm run preview -- --host 127.0.0.1 --port 8766 --strictPort
+```
+
+Les tests de fiabilité couvrent notamment suspension, cap de huit heures, migration des missions payées, quota, corruption, secours, onglet périmé et équilibrage. La simulation compare des stratégies avec ressources abondantes : elle ne prédit pas la durée totale de la campagne. Répéter le premier trajet vingt fois ne révèle plus le signal ; visiter les cinq routes avec Opale en mode Éclaireur demande environ 166 minutes de trajet et 1,41 million d'éclats, hors acquisition des ressources.
+
+Les branches `feature/**` ont leur propre vérification GitHub Actions, sans déploiement. La publication Pages reste réservée à `main`.
+
+### Application installable et hors connexion
+
+Tester la PWA avec le **build de production**, pas le serveur de développement. HTTPS est nécessaire sur un hébergement ; localhost convient aux essais. Le bouton d'installation apparaît dans les réglages lorsque le navigateur propose l'installation. Le manifeste, son périmètre et ses icônes sont relatifs pour rester compatibles avec GitHub Pages.
+
+La première préparation du mode hors connexion télécharge environ 17 Mo, dont les six illustrations. Une nouvelle version attend la validation dans les réglages ; l'enregistrement doit réussir avant son activation. Le stockage reste attaché au navigateur, à l'origine et au profil utilisés : exporter la partie avant de changer de navigateur ou d'appareil.
+
+À valider sur un véritable Android avant sortie publique : installation depuis Chrome, lancement depuis l'icône, mode avion après préparation du cache, verrouillage de l'écran pendant une mission, puis retour et mise à jour. Une émulation de largeur ne remplace pas ces contrôles matériels.
+
 ## Branche de préparation 0.9.1 - L'Équipe de nuit
 
 - six spécialistes réellement affectables aux expéditions du Réseau des Failles ;

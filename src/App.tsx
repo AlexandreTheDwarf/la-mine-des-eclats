@@ -10,6 +10,8 @@ import {
   Copy,
   Crosshair,
   Database,
+  Download,
+  Smartphone,
   Factory,
   Flame,
   FlaskConical,
@@ -50,7 +52,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
   type CSSProperties,
@@ -94,7 +95,6 @@ import {
   industryRecipeReady,
   industrySpeed,
   industryUnlocked,
-  loadGame,
   legacyCost,
   machineCost,
   marketQuoteAt,
@@ -108,7 +108,6 @@ import {
   reputationRank,
   researchCost,
   researchLevelCount,
-  saveGame,
   selectedInventoryValue,
   upgradeCost,
   veinsPerMeterFor,
@@ -123,6 +122,9 @@ import {
   type ResearchId,
   type UpgradeId,
 } from "./game";
+import { useGameSession } from "./useGameSession";
+import { SaveRecovery, downloadSave } from "./SaveRecovery";
+import { usePwa } from "./usePwa";
 import { GrandWorksPanel } from "./GrandWorksPanel";
 import { GRAND_WORKS_UNLOCK_EXPEDITIONS, autoRepeatUnlocked } from "./grandWorks";
 import { RiftNetworkPanel } from "./RiftNetworkPanel";
@@ -1407,10 +1409,12 @@ function OfflineModal({ state, dispatch }: { state: GameState; dispatch: React.D
         <Bot aria-hidden="true" />
         <small>PENDANT TON ABSENCE</small>
         <h2 id="offline-title">La mine n'a pas dormi.</h2>
-        <p>Les machines ont travaillé pendant {formatDuration(report.seconds)}.</p>
+        <p>Absence comptabilisée : {formatDuration(report.seconds)} (maximum 8 h).</p>
         <div className="offline-loot">
           <span><Sparkles /> <strong>+{formatNumber(report.shards)}</strong> éclats</span>
           <span><Package /> <strong>+{formatNumber(report.ore)}</strong> roches</span>
+          {report.batches > 0 && <span><Factory /> <strong>{report.batches}</strong> lots terminés</span>}
+          {report.expeditions > 0 && <span><Map /> <strong>{report.expeditions}</strong> retour d'expédition</span>}
         </div>
         <button type="button" onClick={() => dispatch({ type: "DISMISS_OFFLINE" })}>REPRENDRE LA PIOCHE</button>
       </section>
@@ -1422,14 +1426,20 @@ function SettingsModal({
   state,
   dispatch,
   onClose,
+  pwa,
+  readBackup,
 }: {
   state: GameState;
-  dispatch: React.Dispatch<Parameters<typeof gameReducer>[1]>;
+  dispatch: (action: Parameters<typeof gameReducer>[1]) => boolean;
   onClose: () => void;
+  pwa: ReturnType<typeof usePwa>;
+  readBackup: () => GameState | null;
 }) {
   const [importValue, setImportValue] = useState("");
   const [feedback, setFeedback] = useState("");
   const [resetArmed, setResetArmed] = useState(false);
+  const [backup] = useState(readBackup);
+  const [restoreArmed, setRestoreArmed] = useState(false);
 
   const copySave = async () => {
     try {
@@ -1442,7 +1452,7 @@ function SettingsModal({
 
   const importSave = () => {
     try {
-      dispatch({ type: "IMPORT", state: decodeSave(importValue) });
+      if (!dispatch({ type: "IMPORT", state: decodeSave(importValue) })) return;
       setFeedback("Sauvegarde importée.");
       setImportValue("");
     } catch {
@@ -1456,7 +1466,7 @@ function SettingsModal({
       setFeedback("Appuie encore une fois pour confirmer.");
       return;
     }
-    dispatch({ type: "RESET" });
+    if (!dispatch({ type: "RESET" })) return;
     setFeedback("Nouvelle mine créée.");
     setResetArmed(false);
   };
@@ -1465,11 +1475,24 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>BRANCHE TEST · VERSION 0.9.1</small><h2 id="settings-title">Sauvegarde</h2></div>
+          <div><small>BRANCHE TEST · VERSION 0.9.2</small><h2 id="settings-title">La mine & ses archives</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
         <button className="settings-action" type="button" onClick={copySave}><Copy /> COPIER LA SAUVEGARDE</button>
+        <button className="settings-action" type="button" onClick={() => downloadSave(encodeSave(state))}><Download /> TÉLÉCHARGER UNE COPIE</button>
+        {backup && <button className="settings-action" type="button" onClick={() => {
+          if (!restoreArmed) { setRestoreArmed(true); return; }
+          if (dispatch({ type: "IMPORT", state: backup })) { setFeedback("Copie de secours restaurée."); setRestoreArmed(false); }
+        }}><RotateCcw /> {restoreArmed ? "CONFIRMER LA RESTAURATION" : `SECOURS DU ${new Date(backup.lastSavedAt).toLocaleString("fr-FR")}`}</button>}
+        <label htmlFor="save-file">Ouvrir une copie</label>
+        <input id="save-file" type="file" accept=".txt,text/plain" onChange={async (event) => {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          if (file.size > 2_000_000) { setFeedback("Ce fichier est trop volumineux."); return; }
+          try { setImportValue(await file.text()); setFeedback("Copie chargée, prête à importer."); }
+          catch { setFeedback("Lecture du fichier impossible."); }
+        }} />
         <label htmlFor="save-import">Importer un code</label>
         <textarea
           id="save-import"
@@ -1480,6 +1503,12 @@ function SettingsModal({
         <button className="settings-action" type="button" onClick={importSave} disabled={!importValue.trim()}><Database /> IMPORTER</button>
         <button className={`reset-action${resetArmed ? " is-armed" : ""}`} type="button" onClick={reset}><RotateCcw /> {resetArmed ? "CONFIRMER LA NOUVELLE PARTIE" : "RECOMMENCER"}</button>
         {feedback && <p className="settings-feedback" aria-live="polite">{feedback}</p>}
+        <section className="pwa-settings" aria-label="Application">
+          <h3><Smartphone aria-hidden="true" /> {pwa.installed ? "Application installée" : "Application"}</h3>
+          <p role="status">{pwa.error || (pwa.offlineReady ? "Disponible hors connexion sur cet appareil." : "Mode web · cache hors connexion en préparation.")}</p>
+          {pwa.canInstall && <button className="settings-action" type="button" onClick={() => void pwa.install()}><Download /> INSTALLER LA MINE</button>}
+          {pwa.needRefresh && <button className="settings-action" type="button" onClick={() => void pwa.update()}><RefreshCw /> APPLIQUER LA MISE À JOUR</button>}
+        </section>
       </section>
     </div>
   );
@@ -1532,7 +1561,9 @@ declare global {
 }
 
 export default function App() {
-  const [state, dispatch] = useReducer(gameReducer, undefined, loadGame);
+  const session = useGameSession();
+  const { state, dispatch } = session;
+  const pwa = usePwa(session.flush);
   const [activeTab, setActiveTab] = useState<PanelTab>("upgrades");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [effects, setEffects] = useState<HitEffect[]>([]);
@@ -1566,16 +1597,10 @@ export default function App() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      dispatch({ type: "TICK", seconds: 1 });
       setAutomationPulse((pulse) => pulse + 1);
     }, 1_000);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => saveGame(state), 350);
-    return () => window.clearTimeout(timer);
-  }, [state]);
 
   useEffect(() => {
     const oldMaxDepth = previousMaxDepth.current;
@@ -1760,7 +1785,9 @@ export default function App() {
       />
       <EventModal state={state} dispatch={dispatch} />
       <OfflineModal state={state} dispatch={dispatch} />
-      {settingsOpen && <SettingsModal state={state} dispatch={dispatch} onClose={() => setSettingsOpen(false)} />}
+      {pwa.needRefresh && !settingsOpen && !session.problem && <button className="update-notice" type="button" onClick={() => setSettingsOpen(true)}><RefreshCw aria-hidden="true" /> Mise à jour disponible</button>}
+      {settingsOpen && !session.problem && <SettingsModal state={state} dispatch={dispatch} pwa={pwa} readBackup={session.readBackup} onClose={() => setSettingsOpen(false)} />}
+      {session.problem && <SaveRecovery problem={session.problem} state={state} onRecover={session.recover} onReload={session.reload} onRetry={session.retry} />}
     </div>
   );
 }
