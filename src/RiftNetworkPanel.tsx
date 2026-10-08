@@ -6,6 +6,7 @@ import {
   Coins,
   Database,
   FastForward,
+  Gem,
   Lock,
   Map,
   PackageSearch,
@@ -15,7 +16,12 @@ import {
   Sparkles,
   UserRound,
 } from "lucide-react";
-import type { Dispatch } from "react";
+import { useState, type Dispatch } from "react";
+import { OriginPanel } from "./OriginPanel";
+import "./origin.css";
+import { CrewTalents, RelicCollection } from "./ExpeditionEquipment";
+import { originStageById } from "./origin";
+import { planRiftExpedition } from "./expeditionPlanning";
 import {
   INDUSTRY_MATERIALS,
   formatDuration,
@@ -28,15 +34,11 @@ import { grandWorkStages } from "./grandWorks";
 import {
   CREW,
   CREW_LEVEL_THRESHOLDS,
-  crewAdjustedCost,
-  crewAdjustedDuration,
-  crewAdjustedRewards,
   crewBonusLabel,
   crewById,
   crewLevel,
   crewNextLevelXp,
   crewUnlocked,
-  crewXpForRoute,
 } from "./crew";
 import {
   RIFT_APPROACHES,
@@ -44,9 +46,6 @@ import {
   RIFT_UNLOCK_EXPEDITIONS,
   RIFT_UNLOCK_WORK_STAGES,
   riftApproachById,
-  riftExpeditionCost,
-  riftExpeditionDuration,
-  riftExpeditionRewards,
   riftNetworkUnlocked,
   riftRouteById,
   riftRouteUnlocked,
@@ -70,6 +69,31 @@ interface RiftNetworkPanelProps {
  * player to bounce between unrelated tabs.
  */
 export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
+  const [view, setView] = useState<"routes" | "origin" | "relics">("routes");
+  const job = state.origin.activeJob;
+  const discovery = state.origin.awaitingChoice;
+  const unlocked = riftNetworkUnlocked(state.expeditions, state.grandWorks);
+  return <>
+    {unlocked && <>
+      <nav className="rift-views" aria-label="Exploration des failles">
+        <button type="button" aria-pressed={view === "routes"} onClick={() => setView("routes")}><Map aria-hidden="true" />Réseau</button>
+        <button type="button" aria-pressed={view === "origin"} onClick={() => setView("origin")}><Sparkles aria-hidden="true" />Origine{discovery && <i aria-label="Découverte à rapporter" />}</button>
+        <button type="button" aria-pressed={view === "relics"} onClick={() => setView("relics")}><Gem aria-hidden="true" />Reliques</button>
+      </nav>
+      {(job || discovery) && <div className="origin-status" role="status">
+        <div><strong>{job ? `${crewById(job.crewId).name} · ${originStageById(job.stageId).name}` : "Une découverte originelle attend"}</strong>
+          <span>{job ? `Retour dans ${formatDuration(job.remaining)}` : originStageById(discovery!).name}</span></div>
+        <button type="button" onClick={() => setView("origin")} aria-label="Voir le convoi originel"><Sparkles aria-hidden="true" /></button>
+        {job && <div className="rift-progress" role="progressbar" aria-label="Convoi originel" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(100 * (1 - job.remaining / job.duration))}><i style={{ width: `${100 * (1 - job.remaining / job.duration)}%` }} /></div>}
+      </div>}
+    </>}
+    {!unlocked || view === "routes" ? <RiftRoutesPanel state={state} dispatch={dispatch} onOrigin={() => setView("origin")} />
+      : view === "origin" ? <OriginPanel state={state} dispatch={dispatch} onRoutes={() => setView("routes")} onRelics={() => setView("relics")} />
+      : <RelicCollection state={state} dispatch={dispatch} />}
+  </>;
+}
+
+function RiftRoutesPanel({ state, dispatch, onOrigin }: RiftNetworkPanelProps & { onOrigin: () => void }) {
   const completedWorkStages = grandWorkStages(state.grandWorks);
   if (!riftNetworkUnlocked(state.expeditions, state.grandWorks)) {
     const expeditionProgress = Math.min(100, (state.expeditions / RIFT_UNLOCK_EXPEDITIONS) * 100);
@@ -96,32 +120,16 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
   const selectedRoute = riftRouteById(state.selectedRiftRouteId);
   const selectedApproach = riftApproachById(state.selectedRiftApproachId);
   const selectedCrew = crewById(state.selectedCrewId);
-  const selectedCrewXp = state.crewXp[selectedCrew.id];
-  const selectedCrewFatigue = state.crewFatigue[selectedCrew.id];
   const selectedCompletions = state.riftRouteCompletions[selectedRoute.id];
   const selectedUnlocked = riftRouteUnlocked(state.surveyData, selectedRoute);
-  const selectedCost = crewAdjustedCost(
-    riftExpeditionCost(selectedRoute, selectedCompletions),
-    selectedCrew,
-    selectedCrewXp,
-    selectedCrewFatigue,
-  );
-  const selectedRewards = crewAdjustedRewards(
-    riftExpeditionRewards(selectedRoute, selectedApproach, selectedCompletions),
-    selectedCrew,
-    selectedCrewXp,
-    selectedCrewFatigue,
-  );
-  const selectedDuration = crewAdjustedDuration(
-    riftExpeditionDuration(selectedRoute, selectedApproach),
-    selectedCrew,
-    selectedCrewXp,
-    selectedCrewFatigue,
-  );
+  const plan = planRiftExpedition(state);
+  const selectedCost = plan.cost;
+  const selectedRewards = plan.manifest.rewards;
+  const selectedDuration = plan.duration;
   const hasMaterials = Object.entries(selectedCost.materials)
     .every(([id, amount]) => state.industryMaterials[id as IndustryMaterialId] >= (amount ?? 0));
   const selectedCrewUnlocked = crewUnlocked(state.maxDepth, selectedCrew);
-  const canLaunch = !state.activeRiftExpedition && selectedUnlocked && selectedCrewUnlocked && state.shards >= selectedCost.shards && hasMaterials;
+  const canLaunch = !state.activeRiftExpedition && !state.origin.activeJob && selectedUnlocked && selectedCrewUnlocked && state.shards >= selectedCost.shards && hasMaterials;
 
   const activeRoute = state.activeRiftExpedition ? riftRouteById(state.activeRiftExpedition.routeId) : null;
   const activeApproach = state.activeRiftExpedition ? riftApproachById(state.activeRiftExpedition.approachId) : null;
@@ -177,11 +185,11 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
             </button>
           );
         })}
-        <div className={`rift-origin${state.originSignalFound ? " is-detected" : ""}`}>
+        <button type="button" onClick={onOrigin} className={`rift-origin${state.originSignalFound ? " is-detected" : ""}`}>
           <Sparkles aria-hidden="true" />
           <span><small>SIGNAL TERMINAL</small><strong>Faille originelle</strong></span>
-          <b>{state.originSignalFound ? "DÉTECTÉE" : "???"}</b>
-        </div>
+          <b>{state.originSignalFound ? "EXPLORER" : "???"}</b>
+        </button>
       </div>
       {!state.originSignalFound && <p className="rift-origin-requirement">Signal originel : {Math.min(32, state.surveyData)}/32 données · {Object.values(state.riftRouteCompletions).filter((count) => count > 0).length}/5 routes explorées</p>}
 
@@ -202,7 +210,7 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
               {CREW.map((member) => {
                 const unlocked = crewUnlocked(state.maxDepth, member);
                 const selected = selectedCrew.id === member.id;
-                const deployed = activeCrew?.id === member.id;
+                const deployed = activeCrew?.id === member.id || state.origin.activeJob?.crewId === member.id;
                 const xp = state.crewXp[member.id];
                 const level = crewLevel(xp);
                 const nextLevel = crewNextLevelXp(xp);
@@ -237,6 +245,7 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
               })}
             </div>
             <p className="rift-crew-note"><UserRound aria-hidden="true" /><span><strong>{selectedCrew.name} · {selectedCrew.specialty}</strong>{selectedCrew.description}</span></p>
+            <CrewTalents state={state} dispatch={dispatch} />
 
             <div className="rift-heading"><span>PROTOCOLE DE MISSION</span><small>Modifie temps et butin</small></div>
             <div className="rift-approaches" role="group" aria-label="Protocole d'expédition">
@@ -253,6 +262,18 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
               })}
             </div>
 
+            {selectedCompletions > 0 && <div className={`rift-variant${plan.matched ? " is-ready" : ""}`}>
+              <small>VARIANTE · {state.origin.variantDiscoveries.includes(plan.variant.key) ? "DÉJÀ ÉTUDIÉE" : "NOUVEAU RELEVÉ"}</small>
+              <strong>{plan.variant.name}</strong>
+              <p>{crewById(plan.variant.crewId).name} + {riftApproachById(plan.variant.approachId).name} : +20 % de pièces et de données labo, +1 cartographie.</p>
+              <span>{plan.matched ? "Équipe adaptée · bonus inclus dans le manifeste" : "Mission classique possible sans cette association"}</span>
+              {!plan.matched && <button type="button" className="origin-link" disabled={!crewUnlocked(state.maxDepth, crewById(plan.variant.crewId))}
+                onClick={() => {
+                  dispatch({ type: "SELECT_CREW", id: plan.variant.crewId });
+                  dispatch({ type: "SELECT_RIFT_APPROACH", id: plan.variant.approachId });
+                }}><UserRound aria-hidden="true" />Préparer cette variante</button>}
+            </div>}
+
             <div className="rift-manifest">
               <div>
                 <small>PRÉPARATION</small>
@@ -268,13 +289,13 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
                 <span><Coins aria-hidden="true" /> {formatNumber(selectedRewards.coins)} pièces</span>
                 <span><Database aria-hidden="true" /> {selectedRewards.research} données labo</span>
                 <span><Route aria-hidden="true" /> +{selectedRewards.survey} cartographie</span>
-                <span><UserRound aria-hidden="true" /> +{crewXpForRoute(selectedRoute)} XP · {selectedCrew.name}</span>
+                <span><UserRound aria-hidden="true" /> +{plan.manifest.xp} XP · {selectedCrew.name}</span>
                 {selectedRewards.echoes > 0 && <span><Sparkles aria-hidden="true" /> {selectedRewards.echoes} échos</span>}
               </div>
             </div>
 
             <button className="rift-launch" type="button" disabled={!canLaunch} onClick={() => dispatch({ type: "START_RIFT_EXPEDITION" })}>
-              {state.activeRiftExpedition ? <><Clock3 aria-hidden="true" />UNE ÉQUIPE EST DÉJÀ PARTIE</> : <><Send aria-hidden="true" />LANCER AVEC {selectedCrew.name.toUpperCase()} · {formatDuration(selectedDuration)}</>}
+              {state.activeRiftExpedition || state.origin.activeJob ? <><Clock3 aria-hidden="true" />UNE ÉQUIPE EST DÉJÀ PARTIE</> : <><Send aria-hidden="true" />LANCER AVEC {selectedCrew.name.toUpperCase()} · {formatDuration(selectedDuration)}</>}
             </button>
           </>
         )}
@@ -291,7 +312,7 @@ export function RiftNetworkPanel({ state, dispatch }: RiftNetworkPanelProps) {
           return (
             <div className="rift-report" key={report.id}>
               <span><Check aria-hidden="true" /></span>
-              <div><strong>{route.name}</strong><small>{member.name} · {approach.name} · +{report.crewXp} XP · +{report.rewards.survey} cartographie · {formatNumber(report.rewards.coins)} pièces</small></div>
+              <div><strong>{route.name}{report.variantKey ? " · Variante étudiée" : ""}</strong><small>{member.name} · {approach.name} · +{report.crewXp} XP · +{report.rewards.survey} cartographie · {formatNumber(report.rewards.coins)} pièces</small></div>
             </div>
           );
         })}

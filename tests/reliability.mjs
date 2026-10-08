@@ -85,7 +85,7 @@ test("old saves preserve resources, active paid jobs and the already earned sign
   delete old.lastSimulatedAt;
   delete old.originSignalFound;
   const migrated = parseGameSave(JSON.stringify(old));
-  assert.equal(migrated.version, 12);
+  assert.equal(migrated.version, 13);
   assert.equal(migrated.lastSimulatedAt, old.lastSavedAt);
   assert.equal(migrated.originSignalFound, true);
   assert.equal(migrated.shards, old.shards);

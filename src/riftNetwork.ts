@@ -60,6 +60,8 @@ export interface RiftExpeditionJob {
   crewId: CrewId;
   duration: number;
   remaining: number;
+  // Optional only for paid jobs migrated from v0.9.2 or earlier.
+  manifest?: { rewards: RiftExpeditionRewards; xp: number; fatigue: number; variantKey: string | null };
 }
 
 export interface RiftReport {
@@ -70,6 +72,7 @@ export interface RiftReport {
   crewXp: number;
   rewards: RiftExpeditionRewards;
   completedAt: number;
+  variantKey?: string | null;
 }
 
 export const RIFT_UNLOCK_EXPEDITIONS = 3;

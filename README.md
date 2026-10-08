@@ -2,6 +2,40 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
+## Version 0.9.3 - La Faille originelle (préparation)
+
+Branche dédiée `feature/v0.9.3-faille-originelle`. La version publique reste la 0.9.2 tant que cette branche n'est pas fusionnée et publiée.
+
+- trois chapitres explorables, avec prérequis visibles, convois et découvertes narratives ;
+- six reliques garanties, deux emplacements d'équipement et seconde visite pour retrouver l'autre objet ;
+- deux talents par spécialiste à partir du niveau 3 : premier choix gratuit, changement pour 120 000 éclats ;
+- quinze variantes du réseau : une association spécialiste/protocole, qui tourne au retour de mission, sans échéance quotidienne ;
+- bonus optionnel des variantes : +20 % de pièces et données labo, +1 cartographie ;
+- coûts payés et durée/butin/XP/fatigue figés au départ, indépendants des changements d'équipement ultérieurs ;
+- quatre objectifs et progression permanente entre les cycles miniers ;
+- schéma de sauvegarde 13, migration des versions précédentes sans retirer les trajets déjà payés ni les signaux déjà obtenus.
+
+Le Seuil demande le signal et 32 données ; les Archives, une première relique, 44 données et 2 variantes différentes ; le Cœur, les Archives, 60 données et 4 variantes différentes. Les reliques ne sont pas équipées automatiquement après leur découverte.
+
+### Modifier ce chapitre
+
+| Fichier | Point d'entrée |
+| --- | --- |
+| `src/origin.ts` | Textes, conditions des chapitres, durées, prix, reliques et talents |
+| `src/expeditionPlanning.ts` | Calcul partagé des manifestes et rotation des variantes |
+| `src/originValidation.ts` | Validation des nouveaux états persistants avant import |
+| `src/OriginPanel.tsx` | Chapitres, préparation et choix de découverte |
+| `src/ExpeditionEquipment.tsx` | Talents et collection de reliques |
+| `src/origin.css` | Présentation du chapitre sur ordinateur et téléphone |
+| `tests/origin.mjs` | Tests de migration, règles, récompenses uniques et conservation |
+| `scripts/simulate-origin.mjs` | Parcours reproductible avec entrepôt financé |
+
+`npm run simulate:origin` mesure uniquement les trajets après découverte du signal : environ 162 minutes pour atteindre le Cœur et 268 pour réunir les six reliques, dans la stratégie testée. Coût : 5 129 638 éclats, 167 engrenages, 76 alliages et 38 prismes. Ce n'est ni un minimum absolu ni une estimation de temps de jeu : fabrication, minage et pauses sont exclus.
+
+Les trois scènes réutilisent les illustrations existantes : aucun téléchargement graphique supplémentaire. Les talents de cartographie, pièces et données labo concernent le réseau ; les récompenses narratives de l'Origine sont fixes et affichées avant départ.
+
+Voir `docs/v0.9.3-validation.md` pour les contrôles et limites de validation. Pour tester sans toucher à sa vraie mine, utiliser un port local séparé et une partie fictive (`node --experimental-strip-types scripts/simulate-origin.mjs --fixture`). Un export 0.9.3 ne se réimporte pas dans la version publique 0.9.2 : conserver sa copie d'avant mise à jour.
+
 ## Version 0.9.2 - La mine dans la poche
 
 - horloge réelle commune au jeu actif, au retour d'onglet et au rechargement ;

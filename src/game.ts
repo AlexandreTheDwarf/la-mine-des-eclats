@@ -20,8 +20,6 @@ import {
   RIFT_ROUTES,
   emptyRiftRouteCompletions,
   riftApproachById,
-  riftExpeditionCost,
-  riftExpeditionDuration,
   riftExpeditionRewards,
   riftNetworkUnlocked,
   riftOriginReady,
@@ -35,9 +33,6 @@ import {
 } from "./riftNetwork.ts";
 import {
   CREW,
-  addCrewFatigue,
-  crewAdjustedCost,
-  crewAdjustedDuration,
   crewAdjustedRewards,
   crewById,
   crewLevel,
@@ -51,6 +46,13 @@ import {
   type CrewId,
   type CrewXp,
 } from "./crew.ts";
+import {
+  RELICS, RELIC_SLOTS, TALENT_RESPEC_COST, emptyOriginProgress,
+  originStageById, originStageUnlocked, relicMiningMultiplier,
+  type OriginProgress, type OriginStageId, type RelicId, type TalentId,
+} from "./origin.ts";
+import { planRiftExpedition, planOriginExpedition } from "./expeditionPlanning.ts";
+import { validateOriginProgress, validateRiftManifest } from "./originValidation.ts";
 
 export type OreId =
   | "stone"
@@ -225,7 +227,7 @@ export interface TradeRecord {
 }
 
 export interface GameState {
-  version: 12;
+  version: 13;
   shards: number;
   coins: number;
   echoes: number;
@@ -278,6 +280,7 @@ export interface GameState {
   selectedCrewId: CrewId;
   crewXp: CrewXp;
   crewFatigue: CrewFatigue;
+  origin: OriginProgress;
   claimedGoals: string[];
   journal: JournalEntry[];
   activeEvent: MineEvent | null;
@@ -311,6 +314,10 @@ export type GameAction =
   | { type: "SELECT_RIFT_APPROACH"; id: RiftApproachId }
   | { type: "SELECT_CREW"; id: CrewId }
   | { type: "START_RIFT_EXPEDITION" }
+  | { type: "START_ORIGIN_EXPEDITION"; id: OriginStageId }
+  | { type: "CLAIM_ORIGIN_RELIC"; id: RelicId }
+  | { type: "TOGGLE_RELIC"; id: RelicId }
+  | { type: "SELECT_CREW_TALENT"; crewId: CrewId; id: TalentId }
   | { type: "BUY_UPGRADE"; id: UpgradeId }
   | { type: "BUY_MACHINE"; id: MachineId }
   | { type: "BUY_LEGACY"; id: LegacyId }
@@ -618,6 +625,10 @@ export const GOALS: GoalDefinition[] = [
   { id: "crew-apprentice", name: "Premiers galons", description: "Former un membre au niveau 2", target: 2, progress: (s) => Math.max(...CREW.map((member) => crewLevel(s.crewXp[member.id]))), reward: { echoes: 5, research: 8 } },
   { id: "crew-veteran", name: "Guide des failles", description: "Former un membre au niveau 5", target: 5, progress: (s) => Math.max(...CREW.map((member) => crewLevel(s.crewXp[member.id]))), reward: { echoes: 18, research: 20 } },
   { id: "crew-company", name: "Équipe de nuit", description: "Cumuler 18 niveaux d'équipage", target: 18, progress: (s) => totalCrewLevels(s.crewXp), reward: { echoes: 30, coins: 1_500_000_000 } },
+  { id: "origin-threshold", name: "De l'autre côté", description: "Rapporter une première relique", target: 1, progress: (s) => s.origin.ownedRelics.length, reward: { shards: 80_000, research: 15 } },
+  { id: "origin-variants", name: "Un autre regard", description: "Étudier quatre variantes différentes", target: 4, progress: (s) => s.origin.variantDiscoveries.length, reward: { shards: 160_000, echoes: 8 } },
+  { id: "origin-heart", name: "Celles qui creusaient avant nous", description: "Explorer le Cœur de l'aube", target: 1, progress: (s) => s.origin.visits.heart, reward: { echoes: 30, research: 80 } },
+  { id: "origin-collection", name: "Rien n'est oublié", description: "Réunir les six reliques originelles", target: 6, progress: (s) => s.origin.ownedRelics.length, reward: { echoes: 40, research: 100 } },
 ];
 
 export interface DerivedStats {
@@ -708,7 +719,7 @@ export function rockNameFor(state: GameState): string {
 export function createInitialState(): GameState {
   const rockMaxHp = rockMaxHpFor(1);
   return {
-    version: 12,
+    version: 13,
     shards: 0,
     coins: 0,
     echoes: 0,
@@ -757,6 +768,7 @@ export function createInitialState(): GameState {
     selectedCrewId: "mica",
     crewXp: emptyCrewXp(),
     crewFatigue: emptyCrewFatigue(),
+    origin: emptyOriginProgress(),
     claimedGoals: [],
     journal: [{ id: 1, text: "La première galerie attend. Trois silhouettes observent depuis les poutres.", tone: "normal" }],
     activeEvent: null,
@@ -843,6 +855,7 @@ function normalizeState(candidate: StoredGameState): GameState {
         crewId: CREW.some((member) => member.id === rawRiftJob.crewId) ? rawRiftJob.crewId : "mica",
         duration: Math.max(1, Number(rawRiftJob.duration) || 1),
         remaining: Math.max(0, Number(rawRiftJob.remaining) || 0),
+        ...(rawRiftJob.manifest ? { manifest: rawRiftJob.manifest } : {}),
       }
     : null;
   const inferredPreviousSale =
@@ -854,7 +867,7 @@ function normalizeState(candidate: StoredGameState): GameState {
   const merged: GameState = {
     ...base,
     ...candidateWithoutLegacyJob,
-    version: 12,
+    version: 13,
     toolTier,
     inventory: { ...base.inventory, ...(candidate.inventory ?? {}) },
     upgrades: candidateUpgrades,
@@ -905,6 +918,7 @@ function normalizeState(candidate: StoredGameState): GameState {
     selectedCrewId,
     crewXp,
     crewFatigue,
+    origin: candidate.origin ?? emptyOriginProgress(),
     claimedGoals: Array.isArray(candidate.claimedGoals) ? candidate.claimedGoals : [],
     journal: Array.isArray(candidate.journal) && candidate.journal.length ? candidate.journal.slice(0, 12) : base.journal,
     activeEvent: null,
@@ -980,7 +994,8 @@ function applyOfflineProgress(state: GameState, elapsed: number): GameState {
   const shards = Math.floor(work / 18);
   const ore = Math.floor(work / 34);
   const batches = next.completedBatches - state.completedBatches;
-  const expeditions = next.riftExpeditionsCompleted - state.riftExpeditionsCompleted;
+  const expeditions = next.riftExpeditionsCompleted - state.riftExpeditionsCompleted
+    + (state.origin.activeJob && !next.origin.activeJob ? 1 : 0);
   const offlineOre = activeZoneForState(next).orePool[0].id;
   return {
     ...next,
@@ -1023,7 +1038,12 @@ export function getDerivedStats(state: GameState): DerivedStats {
   const inventoryValue = Math.round(
     ORE_ORDER.reduce((sum, id) => sum + state.inventory[id] * ORES[id].value, 0) * saleMultiplier,
   );
-  return { clickDamage, maxDurability, critChance, critMultiplier, autoDamage, yieldMultiplier, saleMultiplier, resonanceGain, repairCost, durabilityLoss, inventoryValue };
+  return {
+    clickDamage: Math.max(1, Math.round(clickDamage * relicMiningMultiplier(state.origin, "click"))),
+    autoDamage: autoDamage * relicMiningMultiplier(state.origin, "auto"),
+    yieldMultiplier: yieldMultiplier * relicMiningMultiplier(state.origin, "yield"),
+    maxDurability, critChance, critMultiplier, saleMultiplier, resonanceGain, repairCost, durabilityLoss, inventoryValue,
+  };
 }
 
 export function upgradeCost(definition: UpgradeDefinition, level: number): number {
@@ -1492,13 +1512,14 @@ function progressRiftExpedition(state: GameState, seconds: number): GameState {
   const approach = riftApproachById(job.approachId);
   const member = crewById(job.crewId);
   const previousCompletions = state.riftRouteCompletions[route.id];
-  const rewards = crewAdjustedRewards(
+  const rewards = job.manifest?.rewards ?? crewAdjustedRewards(
     riftExpeditionRewards(route, approach, previousCompletions),
     member,
     state.crewXp[member.id],
     state.crewFatigue[member.id],
   );
-  const earnedCrewXp = crewXpForRoute(route);
+  const earnedCrewXp = job.manifest?.xp ?? crewXpForRoute(route);
+  const variantKey = job.manifest?.variantKey ?? null;
   const completions = { ...state.riftRouteCompletions, [route.id]: previousCompletions + 1 };
   const report: RiftReport = {
     id: Date.now() + state.riftExpeditionsCompleted,
@@ -1508,6 +1529,7 @@ function progressRiftExpedition(state: GameState, seconds: number): GameState {
     crewXp: earnedCrewXp,
     rewards,
     completedAt: Date.now(),
+    variantKey,
   };
 
   return addJournal(
@@ -1519,7 +1541,10 @@ function progressRiftExpedition(state: GameState, seconds: number): GameState {
       surveyData: state.surveyData + rewards.survey,
       originSignalFound: state.originSignalFound || riftOriginReady(state.surveyData + rewards.survey, completions),
       crewXp: { ...state.crewXp, [member.id]: state.crewXp[member.id] + earnedCrewXp },
-      crewFatigue: { ...state.crewFatigue, [member.id]: addCrewFatigue(state.crewFatigue[member.id]) },
+      crewFatigue: { ...state.crewFatigue, [member.id]: Math.min(100, state.crewFatigue[member.id] + (job.manifest?.fatigue ?? 40)) },
+      origin: variantKey && !state.origin.variantDiscoveries.includes(variantKey)
+        ? { ...state.origin, variantDiscoveries: [...state.origin.variantDiscoveries, variantKey] }
+        : state.origin,
       activeRiftExpedition: null,
       riftRouteCompletions: completions,
       riftExpeditionsCompleted: state.riftExpeditionsCompleted + 1,
@@ -1537,8 +1562,8 @@ function progressRiftExpedition(state: GameState, seconds: number): GameState {
  * full interval, including time simulated while the game was closed.
  */
 function progressRiftAndCrew(state: GameState, seconds: number): GameState {
-  const activeJob = state.activeRiftExpedition;
-  const next = progressRiftExpedition(state, seconds);
+  const activeJob = state.activeRiftExpedition ?? state.origin.activeJob;
+  const next = progressOriginExpedition(progressRiftExpedition(state, seconds), seconds);
   if (seconds <= 0) return next;
 
   const crewFatigue = { ...next.crewFatigue };
@@ -1549,6 +1574,25 @@ function progressRiftAndCrew(state: GameState, seconds: number): GameState {
     crewFatigue[member.id] = recoverCrewFatigue(crewFatigue[member.id], restSeconds);
   });
   return { ...next, crewFatigue };
+}
+
+/** Arrival is separate from claiming a relic. The choice survives tab closure
+ * and mine resets; elapsed time can never pick or award it twice for a player. */
+function progressOriginExpedition(state: GameState, seconds: number): GameState {
+  const job = state.origin.activeJob;
+  if (!job || seconds <= 0) return state;
+  if (job.remaining > seconds) return {
+    ...state, origin: { ...state.origin, activeJob: { ...job, remaining: job.remaining - seconds } },
+  };
+  const member = crewById(job.crewId);
+  const stage = originStageById(job.stageId);
+  return addJournal({
+    ...state,
+    crewXp: { ...state.crewXp, [job.crewId]: state.crewXp[job.crewId] + job.xp },
+    crewFatigue: { ...state.crewFatigue, [job.crewId]: Math.min(100, state.crewFatigue[job.crewId] + job.fatigue) },
+    origin: { ...state.origin, activeJob: null, awaitingChoice: job.stageId },
+    message: `${member.name} a atteint ${stage.name}. Une découverte attend dans les Failles.`,
+  }, `${member.name} ouvre ${stage.name}. Le choix de la relique vous appartient.`, "rare");
 }
 
 function tick(state: GameState, seconds: number): GameState {
@@ -1869,7 +1913,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       };
     }
     case "START_RIFT_EXPEDITION": {
-      if (!riftNetworkUnlocked(state.expeditions, state.grandWorks) || state.activeRiftExpedition) return state;
+      if (!riftNetworkUnlocked(state.expeditions, state.grandWorks) || state.activeRiftExpedition || state.origin.activeJob) return state;
       const route = riftRouteById(state.selectedRiftRouteId);
       const approach = riftApproachById(state.selectedRiftApproachId);
       const member = crewById(state.selectedCrewId);
@@ -1880,14 +1924,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         return { ...state, selectedCrewId: "mica", message: "Cette spécialiste n'a pas encore rejoint la mine." };
       }
 
-      const memberXp = state.crewXp[member.id];
-      const memberFatigue = state.crewFatigue[member.id];
-      const cost = crewAdjustedCost(
-        riftExpeditionCost(route, state.riftRouteCompletions[route.id]),
-        member,
-        memberXp,
-        memberFatigue,
-      );
+      const { cost, duration, manifest } = planRiftExpedition(state);
       const hasMaterials = Object.entries(cost.materials)
         .every(([id, amount]) => state.industryMaterials[id as IndustryMaterialId] >= (amount ?? 0));
       if (state.shards < cost.shards || !hasMaterials) {
@@ -1898,12 +1935,6 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       Object.entries(cost.materials).forEach(([id, amount]) => {
         materials[id as IndustryMaterialId] -= amount ?? 0;
       });
-      const duration = crewAdjustedDuration(
-        riftExpeditionDuration(route, approach),
-        member,
-        memberXp,
-        memberFatigue,
-      );
       return addJournal(
         {
           ...state,
@@ -1915,6 +1946,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
             crewId: member.id,
             duration,
             remaining: duration,
+            manifest,
           },
           message: `DÉPART CONFIRMÉ · ${member.name} vers ${route.name}, retour dans ${formatDuration(duration)}.`,
         },
@@ -2001,13 +2033,67 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       next.durability = getDerivedStats(next).maxDurability;
       return addJournal(next, `${nextTool.name} forgée. ${nextTool.epithet}`, "rare");
     }
+    case "START_ORIGIN_EXPEDITION": {
+      if (!riftNetworkUnlocked(state.expeditions, state.grandWorks) || state.activeRiftExpedition
+        || state.origin.activeJob || state.origin.awaitingChoice
+        || !originStageUnlocked(state.origin, state.originSignalFound, state.surveyData, action.id)) return state;
+      const stage = originStageById(action.id);
+      if (stage.relics.every((id) => state.origin.ownedRelics.includes(id))) return state;
+      if (!crewUnlocked(state.maxDepth, crewById(state.selectedCrewId))) return state;
+      const plan = planOriginExpedition(state, stage.id);
+      if (state.shards < plan.cost.shards || Object.entries(plan.cost.materials).some(([id, amount]) => state.industryMaterials[id as IndustryMaterialId] < (amount ?? 0))) {
+        return { ...state, message: "Le convoi originel attend ses éclats et ses composants." };
+      }
+      const materials = { ...state.industryMaterials };
+      for (const [id, amount] of Object.entries(plan.cost.materials)) materials[id as IndustryMaterialId] -= amount ?? 0;
+      return addJournal({
+        ...state, shards: state.shards - plan.cost.shards, industryMaterials: materials,
+        origin: { ...state.origin, activeJob: { stageId: stage.id, crewId: state.selectedCrewId, duration: plan.duration, remaining: plan.duration, xp: plan.xp, fatigue: plan.fatigue } },
+        message: `${crewById(state.selectedCrewId).name} part vers ${stage.name}.`,
+      }, `Le convoi entre dans ${stage.name}.`, "rare");
+    }
+    case "CLAIM_ORIGIN_RELIC": {
+      const id = state.origin.awaitingChoice;
+      if (!id) return state;
+      const stage = originStageById(id);
+      if (!(stage.relics as readonly string[]).includes(action.id) || state.origin.ownedRelics.includes(action.id)) return state;
+      const relic = RELICS.find((entry) => entry.id === action.id)!;
+      return addJournal({
+        ...state, researchPoints: state.researchPoints + stage.research, echoes: state.echoes + stage.echoes,
+        origin: {
+          ...state.origin, awaitingChoice: null,
+          visits: { ...state.origin.visits, [id]: state.origin.visits[id] + 1 },
+          ownedRelics: [...state.origin.ownedRelics, action.id],
+        },
+        message: `${relic.name} rejoint la collection. Ses effets attendent son équipement.`,
+      }, `${relic.name} retrouvé. ${relic.story}`, "rare");
+    }
+    case "TOGGLE_RELIC": {
+      if (!state.origin.ownedRelics.includes(action.id)) return state;
+      const equipped = state.origin.equippedRelics;
+      if (!equipped.includes(action.id) && equipped.length >= RELIC_SLOTS) return { ...state, message: "Les deux emplacements sont occupés. Retire une relique avant d'en équiper une autre." };
+      return { ...state, origin: { ...state.origin, equippedRelics: equipped.includes(action.id) ? equipped.filter((id) => id !== action.id) : [...equipped, action.id] } };
+    }
+    case "SELECT_CREW_TALENT": {
+      if (!CREW.some((member) => member.id === action.crewId) || !["field", "study"].includes(action.id)
+        || !crewUnlocked(state.maxDepth, crewById(action.crewId)) || crewLevel(state.crewXp[action.crewId]) < 3) return state;
+      const previous = state.origin.talents[action.crewId];
+      if (previous === action.id) return state;
+      const cost = previous ? TALENT_RESPEC_COST : 0;
+      if (state.shards < cost) return { ...state, message: "Il manque des éclats pour changer de talent." };
+      return {
+        ...state, shards: state.shards - cost,
+        origin: { ...state.origin, talents: { ...state.origin.talents, [action.crewId]: action.id } },
+        message: `${crewById(action.crewId).name} a choisi un nouveau talent. Il s'appliquera au prochain départ.`,
+      };
+    }
     case "START_EXPEDITION": {
       if (!canStartExpedition(state)) return { ...state, message: `La balise exige ${expeditionTarget(state.expeditions)} mètres.` };
       const reward = expeditionReward(state);
       const fresh = createInitialState();
       return {
         ...fresh,
-        version: 12,
+        version: 13,
         echoes: state.echoes + reward,
         maxDepth: Math.max(state.maxDepth, state.depth),
         expeditions: state.expeditions + 1,
@@ -2042,6 +2128,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         selectedCrewId: state.selectedCrewId,
         crewXp: state.crewXp,
         crewFatigue: state.crewFatigue,
+        origin: state.origin,
         claimedGoals: state.claimedGoals,
         soundOn: state.soundOn,
         impact: { ...fresh.impact, id: state.impact.id + 1 },
@@ -2103,12 +2190,13 @@ export function parseGameSave(raw: string): GameState {
     return value;
   });
   if (!parsed || Array.isArray(parsed) || typeof parsed !== "object"
-    || !Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > 12
+    || !Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > 13
     || !["depth", "expeditions", "maxDepth", "shards"].some((key) => Number.isFinite(parsed[key]))) {
     throw new Error("Sauvegarde incompatible ou endommagée");
   }
   const base = createInitialState();
-  if (parsed.version === 12 && Object.keys(base).some((key) => !(key in parsed))) {
+  // v12 required every existing field but did not yet have the origin chapter.
+  if (parsed.version >= 12 && Object.keys(base).filter((key) => parsed.version >= 13 || key !== "origin").some((key) => !(key in parsed))) {
     throw new Error("Sauvegarde incomplète");
   }
   const checkShape = (value: unknown, example: unknown): void => {
@@ -2126,6 +2214,8 @@ export function parseGameSave(raw: string): GameState {
     } else if (example !== null && typeof value !== typeof example) throw new Error("Type invalide");
   };
   checkShape(parsed, base);
+  if (parsed.origin !== undefined) validateOriginProgress(parsed.origin);
+  if (parsed.activeRiftExpedition && parsed.origin?.activeJob) throw new Error("Deux convois actifs");
   const validateEntries = (entries: unknown[], example: Record<string, unknown>) => {
     for (const entry of entries) {
       if (!entry || typeof entry !== "object" || Object.keys(example).some((key) => !(key in entry))) throw new Error("Entrée incomplète");
@@ -2142,6 +2232,7 @@ export function parseGameSave(raw: string): GameState {
     validateEntries([parsed.activeRiftExpedition], { routeId: "", approachId: "", remaining: 0, duration: 0 });
     if (!RIFT_ROUTES.some((route) => route.id === parsed.activeRiftExpedition.routeId)
       || !RIFT_APPROACHES.some((approach) => approach.id === parsed.activeRiftExpedition.approachId)) throw new Error("Mission inconnue");
+    if (parsed.activeRiftExpedition.manifest !== undefined) validateRiftManifest(parsed.activeRiftExpedition.manifest);
   }
   if ((parsed.claimedGoals ?? []).some((id: unknown) => typeof id !== "string")) throw new Error("Objectif invalide");
   // Reports are displayed without additional guards in the UI.

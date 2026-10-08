@@ -1475,7 +1475,7 @@ function SettingsModal({
     <div className="modal-backdrop" role="presentation">
       <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div className="settings-modal__heading">
-          <div><small>VERSION 0.9.2 · LA MINE DANS LA POCHE</small><h2 id="settings-title">La mine & ses archives</h2></div>
+          <div><small>VERSION 0.9.3 · FAILLE ORIGINELLE · TEST</small><h2 id="settings-title">La mine & ses archives</h2></div>
           <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
         </div>
         <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
@@ -1575,6 +1575,7 @@ export default function App() {
   const previousExpeditions = useRef(state.expeditions);
   const previousRiftUnlocked = useRef(riftNetworkUnlocked(state.expeditions, state.grandWorks));
   const previousRiftCompletions = useRef(state.riftExpeditionsCompleted);
+  const previousOriginChoice = useRef<string | null>(null);
   const reachedGoals = useRef(new Set(
     GOALS
       .filter((goal) => goal.progress(state) >= goal.target || state.claimedGoals.includes(goal.id))
@@ -1696,6 +1697,14 @@ export default function App() {
     }
     previousRiftCompletions.current = state.riftExpeditionsCompleted;
   }, [queueNotices, state.riftExpeditionsCompleted, state.riftReports]);
+
+  useEffect(() => {
+    const choice = state.origin.awaitingChoice;
+    if (choice && choice !== previousOriginChoice.current) {
+      queueNotices([{ id: `origin-discovery-${choice}`, kind: "rift", name: "Un retour de la Faille originelle", detail: "Une relique attend ton choix dans Failles, puis Origine." }]);
+    }
+    previousOriginChoice.current = choice;
+  }, [queueNotices, state.origin.awaitingChoice]);
 
   useEffect(() => {
     const newlyReached: GameNotice[] = [];
