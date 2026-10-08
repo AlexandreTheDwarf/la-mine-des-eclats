@@ -2,7 +2,7 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
-## Branche de préparation 0.9.2 - La mine dans la poche
+## Version 0.9.2 - La mine dans la poche
 
 - horloge réelle commune au jeu actif, au retour d'onglet et au rechargement ;
 - progression d'absence plafonnée à huit heures, comptée une seule fois ;
@@ -15,7 +15,7 @@ Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 - PWA installable dans les navigateurs compatibles, six décors disponibles hors connexion après mise en cache ;
 - mises à jour proposées, puis appliquées après sauvegarde, sans rechargement forcé en pleine partie.
 
-Branche : `feature/v0.9.2-fiabilite-mobile`. Elle inclut les préparations 0.8, 0.9 et 0.9.1, **sans fusion ni publication sur `main`**.
+Version publique sur `main`, issue de `feature/v0.9.2-fiabilite-mobile`. Cette publication inclut également les versions 0.8, 0.9 et 0.9.1 préparées auparavant.
 
 Il s'agit toujours de la webapp, pas d'un APK ni d'une publication Play Store. L'installation n'ajoute ni compte ni synchronisation entre appareils. Le calcul des gains se fait au retour, sans garder le téléphone éveillé.
 
@@ -59,9 +59,9 @@ Tester la PWA avec le **build de production**, pas le serveur de développement.
 
 La première préparation du mode hors connexion télécharge environ 17 Mo, dont les six illustrations. Une nouvelle version attend la validation dans les réglages ; l'enregistrement doit réussir avant son activation. Le stockage reste attaché au navigateur, à l'origine et au profil utilisés : exporter la partie avant de changer de navigateur ou d'appareil.
 
-À valider sur un véritable Android avant sortie publique : installation depuis Chrome, lancement depuis l'icône, mode avion après préparation du cache, verrouillage de l'écran pendant une mission, puis retour et mise à jour. Une émulation de largeur ne remplace pas ces contrôles matériels.
+À valider sur un véritable Android pendant les essais de cette version : installation depuis Chrome, lancement depuis l'icône, mode avion après préparation du cache, verrouillage de l'écran pendant une mission, puis retour et mise à jour. Une émulation de largeur ne remplace pas ces contrôles matériels.
 
-## Branche de préparation 0.9.1 - L'Équipe de nuit
+## Version 0.9.1 - L'Équipe de nuit
 
 - six spécialistes réellement affectables aux expéditions du Réseau des Failles ;
 - bonus distincts sur la durée, les composants, les éclats, les pièces, la cartographie ou les signaux ;
@@ -71,9 +71,9 @@ La première préparation du mode hors connexion télécharge environ 17 Mo, don
 - rapports nominatifs, états de forme et progression visibles avant chaque lancement ;
 - migration transparente des sauvegardes et des expéditions déjà parties en 0.9.0.
 
-Cette version vit sur la branche `feature/v0.9.1-equipage` et ne doit pas être fusionnée dans `main` avant validation.
+Préparée sur `feature/v0.9.1-equipage`, puis intégrée à la publication 0.9.2.
 
-## Branche de préparation 0.9.0 - Le Réseau des Failles
+## Version 0.9.0 - Le Réseau des Failles
 
 - station cartographique débloquée après trois cycles et huit paliers de Grands Travaux ;
 - cinq destinations de cinq minutes à trois heures, plus un signal terminal annonçant la Faille originelle ;
@@ -83,9 +83,9 @@ Cette version vit sur la branche `feature/v0.9.1-equipage` et ne doit pas être 
 - données cartographiques, historique des retours, notifications et trois objectifs dédiés ;
 - migration automatique des sauvegardes 0.8 et logique économique isolée dans `src/riftNetwork.ts`.
 
-Cette version vit sur la branche `feature/v0.9-reseau-failles` et n'est pas encore destinée à `main`.
+Préparée sur `feature/v0.9-reseau-failles`, puis intégrée à la publication 0.9.2.
 
-## Branche de préparation 0.8.0 - Les Grands Travaux
+## Version 0.8.0 - Les Grands Travaux
 
 - trois infrastructures majeures et quinze paliers, débloqués après la deuxième expédition ;
 - près de 19 millions d'éclats nécessaires pour achever l'ensemble des chantiers ;
@@ -94,7 +94,7 @@ Cette version vit sur la branche `feature/v0.9-reseau-failles` et n'est pas enco
 - puits à éclats sans fin après les Grands Travaux, avec rendement décroissant et bonus plafonné ;
 - quatre nouveaux objectifs, migration automatique des productions 0.7 et tests économiques dédiés.
 
-Cette version vit sur la branche `feature/v0.8-grands-travaux` tant qu'elle n'a pas reçu le feu vert pour `main`.
+Préparée sur `feature/v0.8-grands-travaux`, puis intégrée à la publication 0.9.2.
 
 ## Version 0.7.0 - Le Complexe
 
