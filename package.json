@@ -1,7 +1,7 @@
 {
   "name": "la-mine-des-eclats",
   "private": true,
-  "version": "0.9.3",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --configLoader runner",
@@ -10,6 +10,7 @@
     "test": "node --experimental-strip-types --test tests/*.mjs",
     "simulate": "node --experimental-strip-types scripts/simulate-balance.mjs",
     "simulate:origin": "node --experimental-strip-types scripts/simulate-origin.mjs",
+    "simulate:campaign": "node --experimental-strip-types scripts/simulate-campaign.mjs --assert",
     "check:pwa": "node scripts/check-pwa.mjs",
     "typecheck": "tsc -b --pretty false"
   },

@@ -62,7 +62,7 @@ test("v12 migration adds only the new chapter and preserves a paid legacy missio
   };
   delete old.origin;
   const migrated = parseGameSave(JSON.stringify(old));
-  assert.equal(migrated.version, 13);
+  assert.equal(migrated.version, 14);
   assert.deepEqual(migrated.origin, emptyOriginProgress());
   assert.deepEqual(migrated.activeRiftExpedition, old.activeRiftExpedition);
   assert.equal(migrated.shards, old.shards);

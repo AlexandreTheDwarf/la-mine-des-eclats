@@ -1,5 +1,6 @@
 import {
   Bot,
+  BookOpen,
   Cat,
   Check,
   ChevronRight,
@@ -7,11 +8,8 @@ import {
   Clock3,
   ClipboardList,
   Compass,
-  Copy,
   Crosshair,
   Database,
-  Download,
-  Smartphone,
   Factory,
   Flame,
   FlaskConical,
@@ -30,7 +28,6 @@ import {
   Pickaxe,
   Radio,
   RefreshCw,
-  RotateCcw,
   Settings,
   Shield,
   ShoppingCart,
@@ -82,8 +79,6 @@ import {
   canStartExpedition,
   canForgeNext,
   contractRequirementsMet,
-  decodeSave,
-  encodeSave,
   formatDuration,
   formatNumber,
   gameReducer,
@@ -123,15 +118,17 @@ import {
   type UpgradeId,
 } from "./game";
 import { useGameSession } from "./useGameSession";
-import { SaveRecovery, downloadSave } from "./SaveRecovery";
+import { SaveRecovery } from "./SaveRecovery";
+import { SettingsModal } from "./SettingsModal";
+import { Modal } from "./Modal";
+import { CampaignPanel, CampaignCompass } from "./CampaignPanel";
+import { nextCampaignStep, type PanelTab, type Destination } from "./progression";
 import { usePwa } from "./usePwa";
 import { GrandWorksPanel } from "./GrandWorksPanel";
 import { GRAND_WORKS_UNLOCK_EXPEDITIONS, autoRepeatUnlocked } from "./grandWorks";
 import { RiftNetworkPanel } from "./RiftNetworkPanel";
 import { riftNetworkUnlocked, riftRouteById } from "./riftNetwork";
 import { CREW, crewById, crewLevel, crewUnlocked } from "./crew";
-
-type PanelTab = "upgrades" | "machines" | "forge" | "contracts" | "research" | "industry" | "works" | "rifts" | "goals" | "expedition";
 
 interface HitEffect {
   id: number;
@@ -144,7 +141,7 @@ interface HitEffect {
 
 interface GameNotice {
   id: string;
-  kind: "unlock" | "goal" | "contract" | "research" | "industry" | "works" | "rift";
+  kind: "unlock" | "goal" | "contract" | "research" | "industry" | "works" | "rift" | "campaign";
   name: string;
   detail: string;
   machineId?: MachineId;
@@ -195,6 +192,7 @@ const industryModuleIcons: Record<IndustryModuleId, LucideIcon> = {
 };
 
 const tabDefinitions: Array<{ id: PanelTab; label: string; icon: LucideIcon }> = [
+  { id: "journal", label: "Carnet", icon: BookOpen },
   { id: "upgrades", label: "Améliorer", icon: Zap },
   { id: "machines", label: "Machines", icon: Bot },
   { id: "forge", label: "Forge", icon: Hammer },
@@ -221,9 +219,9 @@ function NoticeStack({
   return (
     <div className="notice-stack" aria-live="polite" aria-label="Nouveautés de la mine">
       {notices.slice(0, 2).map((notice) => {
-        const Icon = notice.kind === "contract" ? Handshake : notice.kind === "research" ? FlaskConical : notice.kind === "industry" ? Factory : notice.kind === "works" ? HardHat : notice.kind === "rift" ? Map : notice.machineId ? machineIcons[notice.machineId] : Trophy;
-        const eyebrow = notice.kind === "unlock" ? "NOUVEAU PLAN DÉBLOQUÉ" : notice.kind === "contract" ? "NOUVEAU RÉSEAU" : notice.kind === "research" ? "NOUVELLE AILE" : notice.kind === "industry" ? "NOUVEAU COMPLEXE" : notice.kind === "works" ? "CHANTIERS DÉBLOQUÉS" : notice.kind === "rift" ? "NOUVEAU SIGNAL" : "OBJECTIF ATTEINT";
-        const actionLabel = notice.kind === "unlock" ? "ATELIER" : notice.kind === "contract" ? "CONTRATS" : notice.kind === "research" ? "LABO" : notice.kind === "industry" ? "INDUSTRIE" : notice.kind === "works" ? "TRAVAUX" : notice.kind === "rift" ? "FAILLES" : "OBJECTIFS";
+        const Icon = notice.kind === "campaign" ? BookOpen : notice.kind === "contract" ? Handshake : notice.kind === "research" ? FlaskConical : notice.kind === "industry" ? Factory : notice.kind === "works" ? HardHat : notice.kind === "rift" ? Map : notice.machineId ? machineIcons[notice.machineId] : Trophy;
+        const eyebrow = notice.kind === "campaign" ? "UNE NOUVELLE PAGE" : notice.kind === "unlock" ? "NOUVEAU PLAN DÉBLOQUÉ" : notice.kind === "contract" ? "NOUVEAU RÉSEAU" : notice.kind === "research" ? "NOUVELLE AILE" : notice.kind === "industry" ? "NOUVEAU COMPLEXE" : notice.kind === "works" ? "CHANTIERS DÉBLOQUÉS" : notice.kind === "rift" ? "NOUVEAU SIGNAL" : "OBJECTIF ATTEINT";
+        const actionLabel = notice.kind === "campaign" ? "CARNET" : notice.kind === "unlock" ? "ATELIER" : notice.kind === "contract" ? "CONTRATS" : notice.kind === "research" ? "LABO" : notice.kind === "industry" ? "INDUSTRIE" : notice.kind === "works" ? "TRAVAUX" : notice.kind === "rift" ? "FAILLES" : "OBJECTIFS";
         return (
           <article className={`game-notice game-notice--${notice.kind}`} key={notice.id}>
             <span className="game-notice__icon"><Icon aria-hidden="true" /></span>
@@ -385,7 +383,7 @@ function InventoryPanel({
   };
 
   return (
-    <aside className="inventory-panel">
+    <aside className="inventory-panel" tabIndex={-1} aria-label="Minerais et commerce">
       <div className="panel-heading">
         <div>
           <span>CHARGEMENT</span>
@@ -393,6 +391,15 @@ function InventoryPanel({
         </div>
         <strong>{formatNumber(inventoryCount(state))}</strong>
       </div>
+
+      {MACHINES.some((machine) => state.machines[machine.id] > 0) && <div className="installed-machines" aria-label="Machines installées">
+        {MACHINES.filter((machine) => state.machines[machine.id] > 0).map((machine) => {
+          const Icon = machineIcons[machine.id];
+          return <span className={`installed-machine installed-machine--${machine.id}`} key={machine.id} title={`${machine.name} : ${state.machines[machine.id]}`} aria-label={`${machine.name} : ${state.machines[machine.id]}`}>
+            <Icon aria-hidden="true" /><strong>{state.machines[machine.id]}</strong>
+          </span>;
+        })}
+      </div>}
 
       {marketUnlocked && (
         <div className="market-console">
@@ -1319,21 +1326,31 @@ function CommandPanel({
   dispatch,
   activeTab,
   onTab,
+  onNavigate,
 }: {
   state: GameState;
   dispatch: React.Dispatch<Parameters<typeof gameReducer>[1]>;
   activeTab: PanelTab;
   onTab: (tab: PanelTab) => void;
+  onNavigate: (destination: Destination) => void;
 }) {
   const readyGoals = GOALS.filter((goal) => goal.progress(state) >= goal.target && !state.claimedGoals.includes(goal.id)).length;
   const readyContracts = state.contractOffers.filter((offer) => offer.expiresAt > Date.now() && contractRequirementsMet(state, offer)).length;
   const readyAnalyses = state.maxDepth >= RESEARCH_UNLOCK_DEPTH
     ? ORE_ORDER.filter((id) => oreStudyUnlocked(state, id) && state.oreStudies[id] < MAX_ORE_STUDY_LEVEL && state.inventory[id] >= oreStudyCost(id, state.oreStudies[id])).length
     : 0;
+  const visibleTabs = tabDefinitions.filter((tab) => tab.id === activeTab || ({
+    contracts: state.maxDepth >= CONTRACT_UNLOCK_DEPTH,
+    research: state.maxDepth >= RESEARCH_UNLOCK_DEPTH,
+    industry: industryUnlocked(state),
+    works: state.expeditions >= GRAND_WORKS_UNLOCK_EXPEDITIONS,
+    rifts: riftNetworkUnlocked(state.expeditions, state.grandWorks),
+    expedition: state.maxDepth >= 100,
+  } as Partial<Record<PanelTab, boolean>>)[tab.id] !== false);
   return (
-    <aside className="command-panel">
-      <nav className="panel-tabs" aria-label="Atelier">
-        {tabDefinitions.map((tab) => {
+    <aside className="command-panel" tabIndex={-1} aria-label="Atelier et carnet">
+      <nav className="panel-tabs" aria-label="Atelier" style={{ gridTemplateColumns: `repeat(${Math.min(6, visibleTabs.length)}, minmax(0, 1fr))` }}>
+        {visibleTabs.map((tab) => {
           const Icon = tab.icon;
           return (
             <button
@@ -1342,6 +1359,7 @@ function CommandPanel({
               key={tab.id}
               onClick={() => onTab(tab.id)}
               aria-pressed={activeTab === tab.id}
+              title={tab.label}
             >
               <Icon aria-hidden="true" />
               <span>{tab.label}</span>
@@ -1355,11 +1373,12 @@ function CommandPanel({
       <div className="command-panel__body">
         <div className="panel-heading panel-heading--command">
           <div>
-            <span>{activeTab === "contracts" ? "COMPAGNIE MINIÈRE" : activeTab === "research" ? "LABORATOIRE D'ÉCHOS" : activeTab === "industry" ? "COMPLEXE SOUTERRAIN" : activeTab === "works" ? "CHANTIER DE PROFONDEUR" : activeTab === "rifts" ? "STATION CARTOGRAPHIQUE" : "ATELIER MOBILE"}</span>
+            <span>{activeTab === "journal" ? "L'HISTOIRE DE TA MINE" : activeTab === "contracts" ? "COMPAGNIE MINIÈRE" : activeTab === "research" ? "LABORATOIRE D'ÉCHOS" : activeTab === "industry" ? "COMPLEXE SOUTERRAIN" : activeTab === "works" ? "CHANTIER DE PROFONDEUR" : activeTab === "rifts" ? "STATION CARTOGRAPHIQUE" : "ATELIER MOBILE"}</span>
             <h2>{tabDefinitions.find((tab) => tab.id === activeTab)?.label}</h2>
           </div>
           {activeTab === "contracts" ? <Handshake aria-hidden="true" /> : activeTab === "research" ? <FlaskConical aria-hidden="true" /> : activeTab === "industry" ? <Factory aria-hidden="true" /> : <HardHat aria-hidden="true" />}
         </div>
+        {activeTab === "journal" && <CampaignPanel state={state} dispatch={dispatch} onNavigate={onNavigate} />}
         {activeTab === "upgrades" && <UpgradeList state={state} dispatch={dispatch} />}
         {activeTab === "machines" && <MachineList state={state} dispatch={dispatch} />}
         {activeTab === "forge" && <ForgePanel state={state} dispatch={dispatch} />}
@@ -1379,8 +1398,7 @@ function EventModal({ state, dispatch }: { state: GameState; dispatch: React.Dis
   const event = state.activeEvent;
   if (!event) return null;
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section className="event-modal" role="dialog" aria-modal="true" aria-labelledby="event-title">
+    <Modal className="event-modal" titleId="event-title">
         <span className="event-modal__sigil"><Sparkles aria-hidden="true" /></span>
         <small>ÉVÉNEMENT DE PROFONDEUR</small>
         <h2 id="event-title">{event.title}</h2>
@@ -1395,8 +1413,7 @@ function EventModal({ state, dispatch }: { state: GameState; dispatch: React.Dis
             <span><strong>Observer la veine</strong><small>Éclats · résonance</small></span>
           </button>
         </div>
-      </section>
-    </div>
+    </Modal>
   );
 }
 
@@ -1404,12 +1421,12 @@ function OfflineModal({ state, dispatch }: { state: GameState; dispatch: React.D
   const report = state.offlineReport;
   if (!report) return null;
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section className="offline-modal" role="dialog" aria-modal="true" aria-labelledby="offline-title">
+    <Modal className="offline-modal" titleId="offline-title">
         <Bot aria-hidden="true" />
         <small>PENDANT TON ABSENCE</small>
         <h2 id="offline-title">La mine n'a pas dormi.</h2>
         <p>Absence comptabilisée : {formatDuration(report.seconds)} (maximum 8 h).</p>
+        <p className="return-heading">Prochaine étape : {nextCampaignStep(state).title}</p>
         <div className="offline-loot">
           <span><Sparkles /> <strong>+{formatNumber(report.shards)}</strong> éclats</span>
           <span><Package /> <strong>+{formatNumber(report.ore)}</strong> roches</span>
@@ -1417,102 +1434,10 @@ function OfflineModal({ state, dispatch }: { state: GameState; dispatch: React.D
           {report.expeditions > 0 && <span><Map /> <strong>{report.expeditions}</strong> retour d'expédition</span>}
         </div>
         <button type="button" onClick={() => dispatch({ type: "DISMISS_OFFLINE" })}>REPRENDRE LA PIOCHE</button>
-      </section>
-    </div>
+    </Modal>
   );
 }
 
-function SettingsModal({
-  state,
-  dispatch,
-  onClose,
-  pwa,
-  readBackup,
-}: {
-  state: GameState;
-  dispatch: (action: Parameters<typeof gameReducer>[1]) => boolean;
-  onClose: () => void;
-  pwa: ReturnType<typeof usePwa>;
-  readBackup: () => GameState | null;
-}) {
-  const [importValue, setImportValue] = useState("");
-  const [feedback, setFeedback] = useState("");
-  const [resetArmed, setResetArmed] = useState(false);
-  const [backup] = useState(readBackup);
-  const [restoreArmed, setRestoreArmed] = useState(false);
-
-  const copySave = async () => {
-    try {
-      await navigator.clipboard.writeText(encodeSave(state));
-      setFeedback("Sauvegarde copiée.");
-    } catch {
-      setFeedback("Copie impossible dans ce navigateur.");
-    }
-  };
-
-  const importSave = () => {
-    try {
-      if (!dispatch({ type: "IMPORT", state: decodeSave(importValue) })) return;
-      setFeedback("Sauvegarde importée.");
-      setImportValue("");
-    } catch {
-      setFeedback("Ce code de sauvegarde n'est pas valide.");
-    }
-  };
-
-  const reset = () => {
-    if (!resetArmed) {
-      setResetArmed(true);
-      setFeedback("Appuie encore une fois pour confirmer.");
-      return;
-    }
-    if (!dispatch({ type: "RESET" })) return;
-    setFeedback("Nouvelle mine créée.");
-    setResetArmed(false);
-  };
-
-  return (
-    <div className="modal-backdrop" role="presentation">
-      <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-        <div className="settings-modal__heading">
-          <div><small>VERSION 0.9.3 · FAILLE ORIGINELLE · TEST</small><h2 id="settings-title">La mine & ses archives</h2></div>
-          <IconButton label="Fermer" onClick={onClose}><X aria-hidden="true" /></IconButton>
-        </div>
-        <p>La progression reste sur cet appareil. Un code permet de la déplacer ou d'en garder une copie.</p>
-        <button className="settings-action" type="button" onClick={copySave}><Copy /> COPIER LA SAUVEGARDE</button>
-        <button className="settings-action" type="button" onClick={() => downloadSave(encodeSave(state))}><Download /> TÉLÉCHARGER UNE COPIE</button>
-        {backup && <button className="settings-action" type="button" onClick={() => {
-          if (!restoreArmed) { setRestoreArmed(true); return; }
-          if (dispatch({ type: "IMPORT", state: backup })) { setFeedback("Copie de secours restaurée."); setRestoreArmed(false); }
-        }}><RotateCcw /> {restoreArmed ? "CONFIRMER LA RESTAURATION" : `SECOURS DU ${new Date(backup.lastSavedAt).toLocaleString("fr-FR")}`}</button>}
-        <label htmlFor="save-file">Ouvrir une copie</label>
-        <input id="save-file" type="file" accept=".txt,text/plain" onChange={async (event) => {
-          const file = event.target.files?.[0];
-          if (!file) return;
-          if (file.size > 2_000_000) { setFeedback("Ce fichier est trop volumineux."); return; }
-          try { setImportValue(await file.text()); setFeedback("Copie chargée, prête à importer."); }
-          catch { setFeedback("Lecture du fichier impossible."); }
-        }} />
-        <label htmlFor="save-import">Importer un code</label>
-        <textarea
-          id="save-import"
-          value={importValue}
-          onChange={(event) => setImportValue(event.target.value)}
-          placeholder="Colle le code de sauvegarde ici…"
-        />
-        <button className="settings-action" type="button" onClick={importSave} disabled={!importValue.trim()}><Database /> IMPORTER</button>
-        <button className={`reset-action${resetArmed ? " is-armed" : ""}`} type="button" onClick={reset}><RotateCcw /> {resetArmed ? "CONFIRMER LA NOUVELLE PARTIE" : "RECOMMENCER"}</button>
-        {feedback && <p className="settings-feedback" aria-live="polite">{feedback}</p>}
-        <section className="pwa-settings" aria-label="Application">
-          <h3><Smartphone aria-hidden="true" /> {pwa.installed ? "Application installée" : "Application"}</h3>
-          <p role="status">{pwa.error || (pwa.offlineReady ? "Disponible hors connexion sur cet appareil." : "Mode web · cache hors connexion en préparation.")}</p>
-          {pwa.canInstall && <button className="settings-action" type="button" onClick={() => void pwa.install()}><Download /> INSTALLER LA MINE</button>}
-          {pwa.needRefresh && <button className="settings-action" type="button" onClick={() => void pwa.update()}><RefreshCw /> APPLIQUER LA MISE À JOUR</button>}
-        </section>
-      </section>
-    </div>
-  );
-}
 
 function useGameAudio(state: GameState) {
   const audioRef = useRef<AudioContext | null>(null);
@@ -1576,6 +1501,7 @@ export default function App() {
   const previousRiftUnlocked = useRef(riftNetworkUnlocked(state.expeditions, state.grandWorks));
   const previousRiftCompletions = useRef(state.riftExpeditionsCompleted);
   const previousOriginChoice = useRef<string | null>(null);
+  const previousDawnStage = useRef(state.campaign.stage);
   const reachedGoals = useRef(new Set(
     GOALS
       .filter((goal) => goal.progress(state) >= goal.target || state.claimedGoals.includes(goal.id))
@@ -1588,6 +1514,11 @@ export default function App() {
 
   useGameAudio(state);
 
+  useEffect(() => {
+    document.documentElement.classList.toggle("reduce-motion", state.reducedMotion);
+    return () => document.documentElement.classList.remove("reduce-motion");
+  }, [state.reducedMotion]);
+
   const queueNotices = useCallback((incoming: GameNotice[]) => {
     if (!incoming.length) return;
     setNotices((current) => {
@@ -1595,6 +1526,14 @@ export default function App() {
       return [...current, ...incoming.filter((notice) => !visible.has(notice.id))].slice(-4);
     });
   }, []);
+
+  useEffect(() => {
+    if (state.campaign.stage > previousDawnStage.current) {
+      setActiveTab("journal");
+      queueNotices([{ id: `dawn-${state.campaign.stage}`, kind: "campaign", name: state.campaign.completed ? "L'Aube retrouvée" : "Le chantier avance", detail: "Le carnet garde le récit de cette nouvelle étape." }]);
+    }
+    previousDawnStage.current = state.campaign.stage;
+  }, [state.campaign.stage, state.campaign.completed, queueNotices]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -1760,10 +1699,19 @@ export default function App() {
     dispatch({ type: "STRIKE" });
   };
 
+  const navigate = (destination: Destination) => {
+    const selector = destination === "mine" ? ".rock-target" : destination === "inventory" ? ".inventory-panel" : ".command-panel";
+    if (destination !== "mine" && destination !== "inventory") setActiveTab(destination);
+    window.requestAnimationFrame(() => {
+      const element = document.querySelector<HTMLElement>(selector);
+      element?.scrollIntoView({ behavior: state.reducedMotion || window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
+      element?.focus({ preventScroll: true });
+    });
+  };
+
   const openNotice = (notice: GameNotice) => {
-    setActiveTab(notice.kind === "unlock" ? "machines" : notice.kind === "contract" ? "contracts" : notice.kind === "research" ? "research" : notice.kind === "industry" ? "industry" : notice.kind === "works" ? "works" : notice.kind === "rift" ? "rifts" : "goals");
+    navigate(notice.kind === "campaign" ? "journal" : notice.kind === "unlock" ? "machines" : notice.kind === "contract" ? "contracts" : notice.kind === "research" ? "research" : notice.kind === "industry" ? "industry" : notice.kind === "works" ? "works" : notice.kind === "rift" ? "rifts" : "goals");
     setNotices((current) => current.filter((item) => item.id !== notice.id));
-    window.setTimeout(() => document.querySelector(".command-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
 
   const style = useMemo(() => ({ "--zone-accent": zone.accent } as CSSProperties), [zone.accent]);
@@ -1771,6 +1719,7 @@ export default function App() {
   return (
     <div className={`app-shell zone-${zone.id}`} style={style}>
       <TopBar state={state} onSound={() => dispatch({ type: "TOGGLE_SOUND" })} onSettings={() => setSettingsOpen(true)} />
+      <CampaignCompass state={state} onOpen={() => navigate("journal")} />
       <main className="game-grid">
         <InventoryPanel
           state={state}
@@ -1785,15 +1734,15 @@ export default function App() {
           onRepair={() => dispatch({ type: "REPAIR" })}
           onSelectZone={(id) => dispatch({ type: "SELECT_ZONE", id })}
         />
-        <CommandPanel state={state} dispatch={dispatch} activeTab={activeTab} onTab={setActiveTab} />
+        <CommandPanel state={state} dispatch={dispatch} activeTab={activeTab} onTab={setActiveTab} onNavigate={navigate} />
       </main>
       <NoticeStack
         notices={notices}
         onOpen={openNotice}
         onDismiss={(id) => setNotices((current) => current.filter((notice) => notice.id !== id))}
       />
-      <EventModal state={state} dispatch={dispatch} />
-      <OfflineModal state={state} dispatch={dispatch} />
+      {!session.problem && !settingsOpen && !state.offlineReport && <EventModal state={state} dispatch={dispatch} />}
+      {!session.problem && !settingsOpen && <OfflineModal state={state} dispatch={dispatch} />}
       {pwa.needRefresh && !settingsOpen && !session.problem && <button className="update-notice" type="button" onClick={() => setSettingsOpen(true)}><RefreshCw aria-hidden="true" /> Mise à jour disponible</button>}
       {settingsOpen && !session.problem && <SettingsModal state={state} dispatch={dispatch} pwa={pwa} readBackup={session.readBackup} onClose={() => setSettingsOpen(false)} />}
       {session.problem && <SaveRecovery problem={session.problem} state={state} onRecover={session.recover} onReload={session.reload} onRetry={session.retry} />}

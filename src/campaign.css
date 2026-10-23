@@ -1,0 +1,125 @@
+/* Campaign surfaces stay in the existing workshop column. The compass reserves
+   one row above the mine, so objectives never cover the rock or repair button. */
+.campaign-compass {
+  display: flex; align-items: center; gap: 12px; width: 100%; height: 56px;
+  padding: 8px 24px; border: 0; border-bottom: 1px solid var(--line);
+  background: #17201f; color: var(--text); text-align: left; cursor: pointer;
+}
+.campaign-compass > svg { width: 20px; color: var(--amber); }
+.campaign-compass > span:first-of-type { min-width: 0; flex: 1; }
+.campaign-compass small { display: block; font-size: 10px; line-height: 15px; color: #c7baa0; }
+.campaign-compass strong { display: block; font-size: 14px; line-height: 19px; overflow-wrap: anywhere; }
+.campaign-compass__count { font: 12px Consolas, monospace; white-space: nowrap; color: var(--cyan-soft); }
+.app-shell .game-grid { height: calc(100dvh - 132px); }
+.installed-machines { display: flex; align-items: end; justify-content: space-around; gap: 6px; border-bottom: 2px solid #547267; padding: 10px 0 8px; margin-bottom: 16px; }
+.installed-machine { display: grid; justify-items: center; gap: 4px; min-width: 28px; color: var(--green); }
+.installed-machine svg { width: 24px; height: 24px; }
+.installed-machine strong { font: 11px Consolas, monospace; color: var(--muted); }
+.installed-machine--smelter { color: var(--coral); }
+.installed-machine--cart { color: var(--amber); }
+.installed-machine--resonator { color: var(--cyan); }
+.installed-machine--excavator { color: #e2d4a6; }
+.panel-tabs button { min-height: 56px; }
+.panel-tabs span { font-size: 10px; line-height: 15px; overflow: visible; text-overflow: clip; }
+.campaign-panel { min-width: 0; font-size: 13px; }
+.campaign-panel h3 { margin: 5px 0 10px; font-size: 17px; line-height: 1.35; }
+.campaign-panel h4 { margin: 0; font-size: 15px; line-height: 1.4; }
+.campaign-panel p { color: #b4c6c5; line-height: 1.65; margin: 10px 0; }
+.campaign-panel small { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.campaign-panel svg { width: 18px; height: 18px; }
+.campaign-panel button {
+  display: inline-flex; gap: 8px; align-items: center; justify-content: center; min-height: 44px;
+  border: 1px solid var(--line-strong); border-radius: 5px; padding: 8px 10px;
+  font-size: 11px; line-height: 1.4; background: #132e30; color: var(--cyan-soft); cursor: pointer;
+}
+.campaign-panel button:disabled { opacity: .45; cursor: not-allowed; }
+.campaign-panel button:not(:disabled):hover { background: #1c3d3e; border-color: var(--cyan); }
+.campaign-panel progress {
+  display: block; width: 100%; height: 6px; border: 0; border-radius: 0;
+  margin: 14px 0 8px; background: #263332; accent-color: var(--green);
+}
+.campaign-panel progress::-webkit-progress-bar { background: #263332; }
+.campaign-panel progress::-webkit-progress-value { background: var(--green); }
+.campaign-next { padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.campaign-next > small { color: var(--amber); }
+.campaign-action-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.campaign-action-row > span { font: 12px Consolas, monospace; flex-shrink: 0; }
+.chapter-list { list-style: none; margin: 20px 0; padding: 0; }
+.chapter-list li { display: flex; gap: 12px; padding: 12px 0; }
+.chapter-list li > div { min-width: 0; }
+.chapter-index { display: grid; place-items: center; flex: 0 0 30px; height: 30px; border: 1px solid var(--line); color: var(--muted); font: 12px Consolas, monospace; }
+.chapter-list h3 { margin: 3px 0; font-size: 13px; color: #a6b7b8; }
+.chapter-list p { font-size: 12px; margin: 6px 0 0; }
+.chapter-list .is-complete .chapter-index { color: var(--green); border-color: #386955; }
+.chapter-list .is-current .chapter-index { color: var(--amber); border-color: var(--amber); }
+.chapter-list .is-current h3 { color: var(--text); }
+.dawn-project { padding: 16px 0 22px; border-top: 1px solid var(--line); }
+.dawn-art { display: flex; flex-direction: column; justify-content: flex-end; padding: 16px; aspect-ratio: 1.7; background-size: cover; background-position: center; text-shadow: 0 2px 5px #000; }
+.dawn-art span { font: 11px Consolas, monospace; }
+.dawn-art h3 { color: #fff5d9; font-size: 22px; margin-bottom: 0; }
+.campaign-requirements { list-style: none; margin: 15px 0; padding: 0; }
+.campaign-requirements li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.campaign-requirements li > span { display: flex; align-items: center; gap: 8px; line-height: 1.4; }
+.campaign-requirements li > span svg { color: var(--green); width: 14px; }
+.campaign-requirements li button { padding: 6px; flex: 0 0 auto; border: 0; background: transparent; }
+.project-costs { display: grid; gap: 8px; margin: 16px 0; }
+.project-costs > span { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: #f0a88c; }
+.project-costs > .is-ready { color: var(--green); }
+.project-costs small { margin-left: auto; }
+.campaign-panel .campaign-primary { width: 100%; background: #453b24; color: #ffe7aa; border-color: #8c7749; }
+.campaign-primary > span { margin-left: auto; white-space: nowrap; }
+.project-running { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 0; color: var(--amber); }
+.project-running strong { font-size: 13px; }
+.project-running progress { flex: 0 0 100%; }
+.project-memory { font-style: italic; }
+.campaign-ending { border-top: 1px solid var(--line); padding-top: 18px; }
+.campaign-ending > img { width: 100%; aspect-ratio: 1.25; object-fit: cover; display: block; }
+.campaign-ending > div { padding-top: 18px; }
+.campaign-ending > div > svg { width: 30px; height: 30px; display: block; margin-bottom: 10px; color: var(--amber); }
+.campaign-ending h3 { font-size: 26px; color: #ffe6a6; }
+.campaign-ending .ending-last { color: var(--text); font-style: italic; }
+.campaign-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 12px; margin: 24px 0; padding: 16px 0; border-block: 1px solid var(--line); }
+.campaign-stats dt { color: var(--muted); font-size: 11px; }
+.campaign-stats dd { margin: 5px 0 0; font: 20px Consolas, monospace; color: var(--green); overflow-wrap: anywhere; }
+.campaign-challenges { margin-top: 26px; }
+.campaign-challenges > h3, .challenge-entry h4 { display: flex; align-items: center; gap: 8px; }
+.campaign-challenges > h3 > svg, .challenge-entry h4 > svg { color: var(--amber); }
+.challenge-entry { padding: 18px 0; border-bottom: 1px solid var(--line); }
+.challenge-entry > small, .challenge-entry > span { display: block; margin-bottom: 12px; }
+.challenge-entry > button { margin-top: 10px; }
+.campaign-log { margin-top: 24px; border-top: 1px solid var(--line); padding: 14px 0; }
+.campaign-history { margin-block: 16px; }
+.campaign-history summary { min-height: 44px; padding-top: 12px; color: var(--muted); cursor: pointer; }
+.campaign-log summary { cursor: pointer; min-height: 40px; color: var(--muted); }
+.campaign-log p { font-size: 12px; border-left: 2px solid var(--line); padding-left: 10px; }
+.game-dialog { color: var(--text); margin: auto; width: min(480px, calc(100% - 24px)); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; }
+.game-dialog::backdrop { background: rgba(0, 6, 9, .82); }
+.settings-modal .motion-setting { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-top: 18px; text-transform: none; }
+.motion-setting input { width: 20px; height: 20px; accent-color: var(--cyan); }
+.install-help { font-size: 13px; line-height: 1.5; }
+.install-help summary { min-height: 44px; padding-top: 12px; cursor: pointer; }
+.install-help a { display: flex; align-items: center; justify-content: space-between; min-height: 44px; color: var(--cyan-soft); }
+.install-help a svg { width: 16px; }
+.return-heading { color: var(--amber) !important; }
+.command-panel, .inventory-panel, .rock-target { scroll-margin-top: 205px; }
+.reduce-motion *, .reduce-motion *::before, .reduce-motion *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+.reduce-motion .impact-layer { display: none; }
+.brand-lockup h1 { font-size: 1.6rem; }
+@media (max-width: 1060px) {
+  .app-shell .game-grid { height: auto; }
+  .campaign-compass { padding-inline: 14px; }
+}
+@media (max-width: 700px) {
+  .campaign-compass { min-height: 64px; height: auto; gap: 8px; padding: 10px 12px; }
+  .campaign-compass strong { font-size: 12px; line-height: 17px; }
+  .campaign-compass small { font-size: 9px; }
+  .campaign-compass__count { font-size: 10px; }
+  .brand-lockup h1 { font-size: 1.18rem; }
+  .resource-pill:not(.resource-pill--depth) { grid-template-columns: 14px minmax(0, 1fr); column-gap: 4px; padding-inline: 5px; }
+  .resource-pill:not(.resource-pill--depth) > svg { grid-row: 1; width: 14px; }
+  .resource-pill:not(.resource-pill--depth) > span { grid-column: 2; grid-row: 1; font-size: 9px; }
+  .resource-pill:not(.resource-pill--depth) > strong { grid-column: 1 / -1; grid-row: 2; font-size: 12px; padding-top: 2px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .campaign-panel *, .game-dialog { animation: none !important; transition: none !important; }
+}

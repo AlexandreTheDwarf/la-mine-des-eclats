@@ -2,6 +2,44 @@
 
 Incremental minier entièrement local, construit avec React, TypeScript et Vite.
 
+## Version 1.0.0 - L'Aube retrouvée
+
+Livraison locale sur `feature/v1.0-laube-retrouvee`, qui inclut la Faille originelle 0.9.3. Aucune fusion ni publication automatique de cette branche : `main` reste inchangée.
+
+- Carnet en six chapitres, prochaine étape calculée depuis la vraie sauvegarde et raccourcis vers le bon atelier.
+- Chantier final en trois phases : 9,5 millions d'éclats, des composants industriels, les six reliques et l'équipage. Chaque phase payée continue pendant l'absence et les cycles.
+- Épilogue permanent, sans remise à zéro de la mine, puis trois défis facultatifs rejouables. Les distinctions ne donnent pas de multiplicateur supplémentaire.
+- Extraction automatique commune au jeu ouvert et fermé : mêmes filons, mêmes minerais et fractions conservées entre les enregistrements.
+- Éclats moins exponentiels après les premiers outils ; machines renforcées par la pioche forgée pour rester utiles en fin de campagne. Les stocks déjà gagnés ne sont pas réduits.
+- Onglets dévoilés progressivement, machines installées visibles, grands compteurs lisibles sur petit écran, dialogues natifs avec gestion du focus et réglage des animations.
+- Aide d'installation accessible même sans bouton proposé par le navigateur.
+
+### Sauvegardes et mise à jour
+
+Le schéma passe à **14**, sans changer la clé de stockage. Les parties 0.9.2 et 0.9.3 sont migrées ; argent, reliques, talents et investissements existants sont conservés. Le chantier final commence à sa première phase, jamais comme une nouvelle partie.
+
+**Exporter une copie avant de changer de version.** Un export 1.0 ne peut pas être réimporté dans une version plus ancienne. La copie de secours locale ne remplace pas un fichier indépendant. Pas de compte, de synchronisation ni d'APK.
+
+### Modifier la 1.0
+
+| Fichier | Responsabilité |
+| --- | --- |
+| `src/campaign.ts` | Textes, coûts, prérequis, défis et validation du carnet sauvegardé |
+| `src/progression.ts` | Chapitres et prochaine étape, dérivés de la progression réelle |
+| `src/game.ts` | Paiement, timers, défis, migration et calcul d'extraction |
+| `src/CampaignPanel.tsx`, `src/campaign.css` | Carnet, chantier, conclusion et adaptation mobile |
+| `src/Modal.tsx`, `src/SettingsModal.tsx` | Dialogues, sauvegardes et aide d'installation |
+| `tests/campaign.mjs` | Régressions 1.0, migration, conservation et parcours final |
+| `scripts/simulate-campaign.mjs` | Quatre stratégies depuis une partie neuve, sans ressources offertes |
+
+Contrôles reproductibles : `npm test`, `npm run simulate:campaign`, `npm run simulate:origin`, `npm run simulate`, `npm run build`, `npm run check:pwa`. Les branches de préparation et la publication Pages vérifient aussi les simulations de campagne.
+
+Les stratégies simulées terminent en 18,52 à 43,25 heures écoulées pour les trois profils qui reviennent souvent, ou environ 17 jours avec un retour toutes les quatre heures. Ce ne sont **ni des heures de clic obligatoires, ni des minima, ni une promesse de durée humaine**. Le profil automatisé termine avec 950 frappes, principalement lors des redémarrages de cycle.
+
+Voir [le bilan de validation 1.0](docs/v1.0-validation.md) pour les mesures, les essais navigateur et les limites matérielles.
+
+Les sections suivantes décrivent l'historique des versions ; leurs numéros de schéma et statuts de publication sont ceux de leur livraison.
+
 ## Version 0.9.3 - La Faille originelle (préparation)
 
 Branche dédiée `feature/v0.9.3-faille-originelle`. La version publique reste la 0.9.2 tant que cette branche n'est pas fusionnée et publiée.

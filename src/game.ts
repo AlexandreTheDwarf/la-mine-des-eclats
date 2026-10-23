@@ -53,6 +53,7 @@ import {
 } from "./origin.ts";
 import { planRiftExpedition, planOriginExpedition } from "./expeditionPlanning.ts";
 import { validateOriginProgress, validateRiftManifest } from "./originValidation.ts";
+import { CHALLENGES, DAWN_PROJECTS, canStartDawnProject, emptyCampaign, validateCampaign, type CampaignProgress, type ChallengeId } from "./campaign.ts";
 
 export type OreId =
   | "stone"
@@ -227,7 +228,7 @@ export interface TradeRecord {
 }
 
 export interface GameState {
-  version: 13;
+  version: 14;
   shards: number;
   coins: number;
   echoes: number;
@@ -281,6 +282,11 @@ export interface GameState {
   crewXp: CrewXp;
   crewFatigue: CrewFatigue;
   origin: OriginProgress;
+  campaign: CampaignProgress;
+  reducedMotion: boolean;
+  // Fractions keep automatic income independent of callback grouping.
+  automaticOreRemainders: Record<OreId, number>;
+  passiveShardRemainder: number;
   claimedGoals: string[];
   journal: JournalEntry[];
   activeEvent: MineEvent | null;
@@ -295,6 +301,10 @@ export interface GameState {
 }
 
 export type GameAction =
+  | { type: "START_DAWN_PROJECT" }
+  | { type: "START_CHALLENGE"; id: ChallengeId }
+  | { type: "ABANDON_CHALLENGE" }
+  | { type: "SET_REDUCED_MOTION"; enabled: boolean }
   | { type: "STRIKE" }
   | { type: "TICK"; seconds: number }
   | { type: "SELECT_ZONE"; id: number }
@@ -719,7 +729,7 @@ export function rockNameFor(state: GameState): string {
 export function createInitialState(): GameState {
   const rockMaxHp = rockMaxHpFor(1);
   return {
-    version: 13,
+    version: 14,
     shards: 0,
     coins: 0,
     echoes: 0,
@@ -769,6 +779,10 @@ export function createInitialState(): GameState {
     crewXp: emptyCrewXp(),
     crewFatigue: emptyCrewFatigue(),
     origin: emptyOriginProgress(),
+    campaign: emptyCampaign(),
+    reducedMotion: false,
+    automaticOreRemainders: emptyInventory(),
+    passiveShardRemainder: 0,
     claimedGoals: [],
     journal: [{ id: 1, text: "La première galerie attend. Trois silhouettes observent depuis les poutres.", tone: "normal" }],
     activeEvent: null,
@@ -867,7 +881,7 @@ function normalizeState(candidate: StoredGameState): GameState {
   const merged: GameState = {
     ...base,
     ...candidateWithoutLegacyJob,
-    version: 13,
+    version: 14,
     toolTier,
     inventory: { ...base.inventory, ...(candidate.inventory ?? {}) },
     upgrades: candidateUpgrades,
@@ -919,6 +933,10 @@ function normalizeState(candidate: StoredGameState): GameState {
     crewXp,
     crewFatigue,
     origin: candidate.origin ?? emptyOriginProgress(),
+    campaign: candidate.campaign ?? emptyCampaign(),
+    reducedMotion: candidate.reducedMotion ?? false,
+    automaticOreRemainders: { ...base.automaticOreRemainders, ...(candidate.automaticOreRemainders ?? {}) },
+    passiveShardRemainder: candidate.passiveShardRemainder ?? 0,
     claimedGoals: Array.isArray(candidate.claimedGoals) ? candidate.claimedGoals : [],
     journal: Array.isArray(candidate.journal) && candidate.journal.length ? candidate.journal.slice(0, 12) : base.journal,
     activeEvent: null,
@@ -988,21 +1006,17 @@ export function advanceGameTime(state: GameState, now = Date.now(), background =
 }
 
 function applyOfflineProgress(state: GameState, elapsed: number): GameState {
-  let next = progressRiftAndCrew(progressIndustry(state, elapsed), elapsed);
-  const stats = getDerivedStats(next);
-  const work = stats.autoDamage * elapsed;
-  const shards = Math.floor(work / 18);
-  const ore = Math.floor(work / 34);
+  // The same rock HP, gallery mix and extraction rules apply with the screen
+  // closed. The former damage/34 shortcut could mint millions of cheap ores.
+  const next = tick(state, elapsed);
+  const shards = Math.max(0, next.shards - state.shards);
+  const ore = Math.max(0, next.totalMined - state.totalMined);
   const batches = next.completedBatches - state.completedBatches;
   const expeditions = next.riftExpeditionsCompleted - state.riftExpeditionsCompleted
     + (state.origin.activeJob && !next.origin.activeJob ? 1 : 0);
-  const offlineOre = activeZoneForState(next).orePool[0].id;
   return {
     ...next,
-    shards: next.shards + shards,
-    totalMined: next.totalMined + ore,
-    inventory: { ...next.inventory, [offlineOre]: next.inventory[offlineOre] + ore },
-    offlineReport: elapsed >= 60 && (shards + ore + batches + expeditions > 0)
+    offlineReport: elapsed >= 60 && (shards + ore + batches + expeditions > 0 || next.campaign.stage > state.campaign.stage)
       ? { seconds: elapsed, shards, ore, batches, expeditions }
       : next.offlineReport,
   };
@@ -1027,7 +1041,9 @@ export function getDerivedStats(state: GameState): DerivedStats {
   const maxDurability = Math.round((tool.durability + state.upgrades.sturdy * 25) * enduranceLegacy * (1 + research.metallurgy * 0.1) * (1 + modules.stabilizer * 0.05));
   const critChance = Math.min(0.56, 0.06 + state.upgrades.precision * 0.03 + research.resonance * 0.01 + (state.maxDepth >= 60 ? 0.04 : 0));
   const critMultiplier = 2 + Math.floor(state.upgrades.precision / 5) * 0.25;
-  const autoDamage = (state.machines.drill * 1.6 + state.machines.excavator * 180) * (1 + state.toolTier * 0.18) * industryLegacy * (1 + research.automation * 0.22) * (1 + modules.press * 0.18) * (extractionDoctrine ? 1.15 : 1) * infrastructure;
+  // Forged tooling also equips the machines. Square-root scaling lets them
+  // remain relevant late in the campaign without copying manual multipliers.
+  const autoDamage = (state.machines.drill * 1.6 + state.machines.excavator * 180) * Math.sqrt(tool.damage / 2) * industryLegacy * (1 + research.automation * 0.22) * (1 + modules.press * 0.18) * (extractionDoctrine ? 1.15 : 1) * infrastructure;
   const yieldMultiplier = (1 + state.machines.cart * 0.09 + state.upgrades.geology * 0.07) * fortuneLegacy * (1 + research.extraction * 0.08) * (1 + modules.logistics * 0.08) * (extractionDoctrine ? 1.2 : 1) * infrastructure;
   const saleMultiplier = (1 + state.machines.smelter * 0.14 + (state.maxDepth >= 25 ? 0.05 : 0)) * fortuneLegacy * (1 + research.commerce * 0.07) * (1 + modules.stabilizer * 0.08) * (commerceDoctrine ? 1.18 : 1) * stewardshipSaleMultiplier(works) * infrastructure;
   const resonanceGain = 6 + state.machines.resonator * 2 + research.resonance * 2 + (resonanceDoctrine ? 3 : 0);
@@ -1304,7 +1320,7 @@ function randomEvent(zone: ZoneDefinition): MineEvent {
   return events[Math.floor(Math.random() * events.length)];
 }
 
-function breakRock(state: GameState, automatic = false): GameState {
+function breakRock(state: GameState, automatic = false, count = 1): GameState {
   const activeZone = activeZoneForState(state);
   const deepestZone = zoneForDepth(state.depth);
   const progressesDepth = activeZone.id === deepestZone.id;
@@ -1313,15 +1329,29 @@ function breakRock(state: GameState, automatic = false): GameState {
   const veinsNeeded = veinsPerMeterFor(state.depth);
   const stats = getDerivedStats(state);
   const inventory = { ...state.inventory };
+  const remainders = { ...state.automaticOreRemainders };
   const expectedRolls = expectedOreYield(state.depth, stats.yieldMultiplier);
-  const baseRolls = Math.floor(expectedRolls);
-  const rolls = Math.max(2, baseRolls + (Math.random() < expectedRolls - baseRolls ? 1 : 0));
   let mined = 0;
-
-  for (let index = 0; index < rolls; index += 1) {
-    const ore = rollOre(activeZone, state.upgrades.geology);
-    inventory[ore] += 1;
-    mined += 1;
+  if (automatic) {
+    // Weighted extraction is deterministic for machines. Fractional ore stays
+    // in the save, making one long absence equal to many small live callbacks.
+    const weights = activeZone.orePool.map((entry, index) => entry.weight * (1 + index * state.upgrades.geology * 0.025));
+    const total = weights.reduce((sum, weight) => sum + weight, 0);
+    activeZone.orePool.forEach((entry, index) => {
+      const amount = remainders[entry.id] + expectedRolls * count * weights[index] / total;
+      const whole = Math.floor(amount + 1e-9);
+      inventory[entry.id] += whole;
+      remainders[entry.id] = Math.max(0, amount - whole);
+      mined += whole;
+    });
+  } else {
+    const baseRolls = Math.floor(expectedRolls);
+    const rolls = Math.max(2, baseRolls + (Math.random() < expectedRolls - baseRolls ? 1 : 0));
+    for (let index = 0; index < rolls; index += 1) {
+      const ore = rollOre(activeZone, state.upgrades.geology);
+      inventory[ore] += 1;
+      mined += 1;
+    }
   }
 
   const advancedStrata = canDescend ? state.strataProgress + 1 : state.strataProgress;
@@ -1334,7 +1364,7 @@ function breakRock(state: GameState, automatic = false): GameState {
       : advancedStrata;
   const nextZone = advancesDepth ? zoneForDepth(nextDepth) : activeZone;
   const rockMaxHp = rockMaxHpFor(nextDepth);
-  const bonusShards = Math.max(2, Math.round(Math.sqrt(state.depth) * (automatic ? 0.7 : 1.1)));
+  const bonusShards = Math.max(2, Math.round(Math.sqrt(state.depth) * (automatic ? 0.7 : 1.1))) * count;
   let next: GameState = {
     ...state,
     shards: state.shards + bonusShards,
@@ -1342,12 +1372,13 @@ function breakRock(state: GameState, automatic = false): GameState {
     maxDepth: Math.max(state.maxDepth, nextDepth),
     selectedZoneId: nextZone.id,
     strataProgress: nextStrataProgress,
-    rocksBroken: state.rocksBroken + 1,
+    rocksBroken: state.rocksBroken + count,
     totalMined: state.totalMined + mined,
     inventory,
+    automaticOreRemainders: remainders,
     rockHp: rockMaxHp,
     rockMaxHp,
-    rockRevision: state.rockRevision + 1,
+    rockRevision: state.rockRevision + count,
     message: !progressesDepth
       ? `${mined} minerais récupérés · profondeur conservée à ${state.depth} m.`
       : !canDescend
@@ -1366,7 +1397,7 @@ function breakRock(state: GameState, automatic = false): GameState {
     next = addJournal(next, `${next.rocksBroken} filons brisés. Les galeries prennent forme.`, "good");
   }
 
-  if (!next.activeEvent && next.rocksBroken > 2 && Math.random() < 0.11) {
+  if (!automatic && !next.activeEvent && next.rocksBroken > 2 && Math.random() < 0.11) {
     next.activeEvent = randomEvent(activeZone);
   }
 
@@ -1391,13 +1422,23 @@ function applyResonance(state: GameState): GameState {
   );
 }
 
+/** Preserve the first tools' rewards, then soften currency growth separately
+ * from damage. A strong pick should break rock, not print billions of shards. */
+export function shardsForStrike(damage: number): number {
+  return Math.max(1, Math.ceil(Math.min(damage, 100) * 0.22 + Math.sqrt(Math.max(0, damage - 100)) * 0.35));
+}
+
+export function passiveShardsPerSecond(damage: number): number {
+  return Math.min(damage, 100) / 15 + Math.sqrt(Math.max(0, damage - 100)) * 0.35;
+}
+
 function strike(state: GameState): GameState {
   const stats = getDerivedStats(state);
   if (state.durability <= 0) return { ...state, message: "La pioche est brisée. L'atelier peut encore la sauver." };
 
   const crit = Math.random() < stats.critChance;
   const damage = Math.max(1, Math.round(stats.clickDamage * (crit ? stats.critMultiplier : 1)));
-  const shardGain = Math.max(1, Math.ceil(damage * 0.22));
+  const shardGain = shardsForStrike(damage);
   let next: GameState = {
     ...state,
     shards: state.shards + shardGain,
@@ -1596,21 +1637,73 @@ function progressOriginExpedition(state: GameState, seconds: number): GameState 
 }
 
 function tick(state: GameState, seconds: number): GameState {
-  let next = progressRiftAndCrew(progressIndustry(ensureContractOffers(state), seconds), seconds);
+  if (!Number.isFinite(seconds) || seconds <= 0) return state;
+  seconds = Math.min(MAX_OFFLINE_SECONDS, seconds);
+  let next = progressDawnProject(progressRiftAndCrew(progressIndustry(ensureContractOffers(state), seconds), seconds), seconds);
   const stats = getDerivedStats(next);
-  if (stats.autoDamage <= 0 || next.activeEvent) return next;
+  if (stats.autoDamage <= 0) return progressChallenge(state, next, seconds);
 
-  next = { ...next, rockHp: next.rockHp - stats.autoDamage * seconds };
-  let guard = 0;
-  while (next.rockHp <= 0 && guard < 12) {
-    const overflow = Math.abs(next.rockHp);
-    next = breakRock(next, true);
-    next.rockHp -= overflow;
-    guard += 1;
+  let work = stats.autoDamage * seconds;
+  // Descending changes HP/yield, so process those rocks individually. At a
+  // beacon or in an old gallery, all remaining identical rocks can be batched.
+  while (work >= Math.max(0, next.rockHp)) {
+    work -= Math.max(0, next.rockHp);
+    const descending = activeZoneForState(next).id === zoneForDepth(next.depth).id
+      && next.depth < expeditionTarget(next.expeditions);
+    const extra = descending ? 0 : Math.floor(work / next.rockMaxHp);
+    work -= extra * next.rockMaxHp;
+    next = breakRock(next, true, 1 + extra);
   }
-  const passiveShards = Math.floor((stats.autoDamage * seconds) / 15);
-  if (passiveShards > 0) next.shards += passiveShards;
-  return next;
+  const passive = next.passiveShardRemainder + passiveShardsPerSecond(stats.autoDamage) * seconds;
+  const passiveShards = Math.floor(passive + 1e-9);
+  next = { ...next, rockHp: next.rockHp - work, shards: next.shards + passiveShards,
+    passiveShardRemainder: Math.max(0, passive - passiveShards) };
+  return progressChallenge(state, next, seconds);
+}
+
+/** Only the already-paid phase advances. Excess absence never purchases the
+ * next phase, and reloading/cycling cannot award the same completion twice. */
+function progressDawnProject(state: GameState, seconds: number): GameState {
+  const job = state.campaign.project;
+  if (!job || seconds <= 0) return state;
+  if (job.remaining > seconds) return { ...state, campaign: { ...state.campaign, project: { ...job, remaining: job.remaining - seconds } } };
+  const stage = job.stage + 1;
+  const completed = stage === DAWN_PROJECTS.length;
+  return addJournal({
+    ...state, campaign: { ...state.campaign, stage, completed, project: null },
+    message: completed ? "L'AUBE RETROUVÉE · ton aventure a changé la montagne." : `${DAWN_PROJECTS[job.stage].name} · chantier achevé.`,
+  }, DAWN_PROJECTS[job.stage].result, "rare");
+}
+
+/** Challenges observe successful actions, not clicks on disabled controls.
+ * They never confiscate resources or reset the main campaign on failure. */
+function progressChallenge(before: GameState, next: GameState, seconds = 0, action?: GameAction): GameState {
+  const run = next.campaign.challenge;
+  if (!run || !before.campaign.challenge) return next;
+  const definition = CHALLENGES.find((entry) => entry.id === run.id)!;
+  const failed = run.id === "steady" && (next.durability <= 0
+    || (action?.type === "REPAIR" && next.durability > before.durability)
+    || next.toolTier !== before.toolTier || next.expeditions !== before.expeditions)
+    || run.id === "workshop" && (next.salesCompleted > before.salesCompleted || next.completedContracts > before.completedContracts);
+  if (failed) return addJournal({ ...next, campaign: { ...next.campaign, challenge: null }, message: `${definition.name} · essai terminé, ta mine reste intacte.` }, `${definition.name} : la condition n'est plus remplie. Un nouvel essai reste possible.`, "normal");
+  let progress = run.progress;
+  let routes = run.routes;
+  let crew = run.crew;
+  if (run.id === "steady") progress += Math.max(0, next.totalStrikes - before.totalStrikes);
+  if (run.id === "workshop") progress += Math.max(0, next.completedBatches - before.completedBatches);
+  if (run.id === "voyager" && next.riftExpeditionsCompleted > before.riftExpeditionsCompleted) {
+    const report = next.riftReports[0];
+    if (report && !routes.includes(report.routeId) && !crew.includes(report.crewId)) {
+      routes = [...routes, report.routeId]; crew = [...crew, report.crewId]; progress += 1;
+    }
+  }
+  const elapsed = run.seconds + seconds;
+  if (progress >= definition.target) return addJournal({
+    ...next, campaign: { ...next.campaign, challenge: null, records: { ...next.campaign.records,
+      [run.id]: Math.min(next.campaign.records[run.id] ?? Infinity, elapsed) } },
+    message: `DISTINCTION · ${definition.distinction}`,
+  }, `${definition.name} accompli. Distinction : ${definition.distinction}.`, "rare");
+  return { ...next, campaign: { ...next.campaign, challenge: { ...run, progress, routes, crew, seconds: elapsed } } };
 }
 
 function resolveEvent(state: GameState, choice: EventChoice): GameState {
@@ -1636,7 +1729,35 @@ function resolveEvent(state: GameState, choice: EventChoice): GameState {
 }
 
 export function gameReducer(state: GameState, action: GameAction): GameState {
+  const next = reduceGameAction(state, action);
+  if (["IMPORT", "RESET", "TICK", "START_CHALLENGE", "ABANDON_CHALLENGE"].includes(action.type)) return next;
+  return progressChallenge(state, next, 0, action);
+}
+
+function reduceGameAction(state: GameState, action: GameAction): GameState {
   switch (action.type) {
+    case "START_DAWN_PROJECT": {
+      if (!canStartDawnProject(state)) return state;
+      const project = DAWN_PROJECTS[state.campaign.stage];
+      const materials = { ...state.industryMaterials };
+      Object.entries(project.materials).forEach(([id, amount]) => { materials[id as IndustryMaterialId] -= amount; });
+      return addJournal({ ...state, shards: state.shards - project.shards, industryMaterials: materials,
+        campaign: { ...state.campaign, project: { stage: state.campaign.stage, duration: project.duration, remaining: project.duration } },
+        message: `${project.name} · l'équipage commence le chantier.`,
+      }, `${project.name} : matériaux engagés, chantier en cours.`, "good");
+    }
+    case "START_CHALLENGE": {
+      if (!state.campaign.completed || state.campaign.challenge || !CHALLENGES.some((entry) => entry.id === action.id)) return state;
+      if (action.id === "steady" && state.durability <= 0) return state;
+      // A tour starts at the station, so a mission paid before the challenge
+      // cannot count as one of its three deliberate crew/route pairings.
+      if (action.id === "voyager" && (state.activeRiftExpedition || state.origin.activeJob)) return state;
+      return { ...state, campaign: { ...state.campaign, challenge: { id: action.id, progress: 0, seconds: 0, routes: [], crew: [] } }, message: "Défi engagé. L'aventure principale continue." };
+    }
+    case "ABANDON_CHALLENGE":
+      return { ...state, campaign: { ...state.campaign, challenge: null }, message: "Défi arrêté. Aucune progression de la mine n'a été retirée." };
+    case "SET_REDUCED_MOTION":
+      return { ...state, reducedMotion: action.enabled };
     case "STRIKE":
       return strike(state);
     case "TICK":
@@ -2093,7 +2214,7 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
       const fresh = createInitialState();
       return {
         ...fresh,
-        version: 13,
+        version: 14,
         echoes: state.echoes + reward,
         maxDepth: Math.max(state.maxDepth, state.depth),
         expeditions: state.expeditions + 1,
@@ -2129,6 +2250,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         crewXp: state.crewXp,
         crewFatigue: state.crewFatigue,
         origin: state.origin,
+        campaign: state.campaign,
+        reducedMotion: state.reducedMotion,
         claimedGoals: state.claimedGoals,
         soundOn: state.soundOn,
         impact: { ...fresh.impact, id: state.impact.id + 1 },
@@ -2190,13 +2313,14 @@ export function parseGameSave(raw: string): GameState {
     return value;
   });
   if (!parsed || Array.isArray(parsed) || typeof parsed !== "object"
-    || !Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > 13
+    || !Number.isInteger(parsed.version) || parsed.version < 1 || parsed.version > 14
     || !["depth", "expeditions", "maxDepth", "shards"].some((key) => Number.isFinite(parsed[key]))) {
     throw new Error("Sauvegarde incompatible ou endommagée");
   }
   const base = createInitialState();
-  // v12 required every existing field but did not yet have the origin chapter.
-  if (parsed.version >= 12 && Object.keys(base).filter((key) => parsed.version >= 13 || key !== "origin").some((key) => !(key in parsed))) {
+  // Each schema only requires fields that existed when it was written.
+  const introduced: Record<string, number> = { origin: 13, campaign: 14, reducedMotion: 14, automaticOreRemainders: 14, passiveShardRemainder: 14 };
+  if (parsed.version >= 12 && Object.keys(base).filter((key) => parsed.version >= (introduced[key] ?? 12)).some((key) => !(key in parsed))) {
     throw new Error("Sauvegarde incomplète");
   }
   const checkShape = (value: unknown, example: unknown): void => {
@@ -2215,6 +2339,10 @@ export function parseGameSave(raw: string): GameState {
   };
   checkShape(parsed, base);
   if (parsed.origin !== undefined) validateOriginProgress(parsed.origin);
+  if (parsed.campaign !== undefined) validateCampaign(parsed.campaign);
+  if (parsed.automaticOreRemainders !== undefined && ORE_ORDER.some((id) =>
+    !Number.isFinite(parsed.automaticOreRemainders[id]) || parsed.automaticOreRemainders[id] < 0 || parsed.automaticOreRemainders[id] >= 1)) throw new Error("Reste d'extraction invalide");
+  if (parsed.passiveShardRemainder !== undefined && (!Number.isFinite(parsed.passiveShardRemainder) || parsed.passiveShardRemainder < 0 || parsed.passiveShardRemainder >= 1)) throw new Error("Reste d'éclats invalide");
   if (parsed.activeRiftExpedition && parsed.origin?.activeJob) throw new Error("Deux convois actifs");
   const validateEntries = (entries: unknown[], example: Record<string, unknown>) => {
     for (const entry of entries) {
